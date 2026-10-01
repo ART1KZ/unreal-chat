@@ -50,6 +50,7 @@ CONFIG_PATH = os.path.expanduser("~/.config/uachat/env")
 HISTORY_PATH = os.path.expanduser("~/.config/uachat/history")
 BRIDGE_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bridge.py")
 UPDATE_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "update-core.sh")
+REPAIR_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "repair-session.py")
 STATE_DIR = os.path.join(
     os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "uachat"
 )
@@ -100,7 +101,7 @@ THEMES: dict[str, dict[str, str]] = {
 
 COMMANDS = (
     "/help", "/new", "/sessions", "/resume", "/session",
-    "/provider", "/model", "/thinking", "/theme", "/themes", "/copy", "/dump", "/exit", "/quit",
+    "/provider", "/model", "/thinking", "/theme", "/themes", "/copy", "/dump", "/repair", "/exit", "/quit",
 )
 COMMAND_HELP = {
     "/help": "this text",
@@ -115,10 +116,11 @@ COMMAND_HELP = {
     "/themes": "list themes",
     "/copy": "copy the last answer to the clipboard",
     "/dump": "write the transcript to a file",
+    "/repair": "copy a session without duplicate tool outputs (gateway rejects)",
     "/exit": "leave",
     "/quit": "leave",
 }
-COMMAND_WITH_ARGS = {"/model", "/thinking", "/theme", "/resume", "/provider", "/new", "/dump"}
+COMMAND_WITH_ARGS = {"/model", "/thinking", "/theme", "/resume", "/provider", "/new", "/dump", "/repair"}
 MAX_RESULT_LINES = 24
 MAX_ARG_CHARS = 160
 # Ctrl-C twice within this window (at the prompt, or right after an interrupted
@@ -894,6 +896,7 @@ HELP = """commands:
   /theme <name>    switch theme and remember it
   /copy            copy the last answer to the clipboard (OSC 52)
   /dump            write the transcript to ~/.local/state/uachat/transcripts
+  /repair [name]   copy the session without duplicate tool outputs, then /resume <name>-rep
   /exit, /quit     leave
 anything else is sent to the agent as a prompt.
 Ctrl-C interrupts the current turn; Ctrl-C twice at the prompt leaves."""
@@ -1174,6 +1177,20 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     path = dump_transcript(session_id, transcript)
                     print(f"transcript: {path}")
+                continue
+            if prompt == "/repair" or prompt.startswith("/repair "):
+                _, _, value = prompt.partition(" ")
+                value = value.strip() or session_id
+                try:
+                    completed = subprocess.run(
+                        [sys.executable, REPAIR_PATH, value],
+                        capture_output=True, text=True, timeout=180,
+                    )
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    print(theme.paint(f"repair failed: {error}", "error"))
+                    continue
+                output = (completed.stdout or completed.stderr or "").strip()
+                print("\n".join("  " + line for line in output.splitlines()))
                 continue
             if prompt.startswith("/theme"):
                 _, _, name = prompt.partition(" ")

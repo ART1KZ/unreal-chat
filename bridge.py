@@ -10,6 +10,7 @@ upstream SSE response back.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import threading
@@ -47,6 +48,18 @@ def make_handler(bridge: Bridge):
         def do_POST(self) -> None:  # noqa: N802 - http.server API
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(length) if length else b""
+            dump_request(body)
+            body, dropped = sanitize(body)
+            if dropped:
+                message = f"collapsed {dropped} duplicate tool output(s) for {self.path}"
+                sys.stderr.write(f"bridge: {message}\n")
+                try:
+                    log_path = os.path.join(os.path.expanduser("~/.local/state/uachat"), "bridge.log")
+                    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                    with open(log_path, "a", encoding="utf-8") as handle:
+                        handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
+                except OSError:
+                    pass
             path = self.path
             url = bridge.target + "/responses"
             request = urllib.request.Request(url, data=body, method="POST", headers=bridge.headers())
@@ -90,6 +103,58 @@ def make_handler(bridge: Bridge):
             sys.stderr.write("bridge: " + fmt % args + "\n")
 
     return Handler
+
+
+def sanitize(body: bytes) -> tuple[bytes, int]:
+    """Collapse duplicate tool outputs for one call id.
+
+    The harness writes one function_call_output per recorded tool-call status
+    (in-progress + final), which some providers reject with
+    "Duplicate tool output for call_id" (unreal-agent issue #11). Keep the last
+    output per call id, which is the completed one.
+    """
+    try:
+        payload = json.loads(body)
+    except (ValueError, TypeError):
+        return body, 0
+    if not isinstance(payload, dict):
+        return body, 0
+    items = payload.get("input")
+    if not isinstance(items, list):
+        return body, 0
+    index_by_key: dict[tuple, int] = {}
+    kept: list = []
+    dropped = 0
+    for item in items:
+        if isinstance(item, dict) and item.get("type") in ("function_call_output", "custom_tool_call_output"):
+            call_id = item.get("call_id") or item.get("item_id") or ""
+            key = (item.get("type"), call_id)
+            # Only outputs that name a call id can be duplicates; never collapse
+            # anonymous ones (they would all share the same key).
+            if call_id and key in index_by_key:
+                kept[index_by_key[key]] = item
+                dropped += 1
+                continue
+            if call_id:
+                index_by_key[key] = len(kept)
+        kept.append(item)
+    if not dropped:
+        return body, 0
+    payload["input"] = kept
+    return json.dumps(payload, ensure_ascii=False).encode(), dropped
+
+
+def dump_request(body: bytes) -> None:
+    if (os.environ.get("UACHAT_BRIDGE_DEBUG") or "").strip() in ("", "0", "off", "false", "no"):
+        return
+    try:
+        path = os.path.join(os.path.expanduser("~/.local/state/uachat"), "bridge-last-request.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as handle:
+            handle.write(body)
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
 
 
 def _watch_parent(parent_pid: int) -> None:

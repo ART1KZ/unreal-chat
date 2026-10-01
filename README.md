@@ -131,6 +131,21 @@ uachat --update-core        # same as ./update-core.sh
 - `check-secrets.sh` fails on credential-shaped strings; the repo ships it as a
   pre-commit hook (`.git/hooks/pre-commit` → `exec ./check-secrets.sh`).
 
+## Troubleshooting
+
+`responses API error invalid_request_error: Duplicate tool output for call_id: ...`
+— the harness records a tool-call status twice and sends one `function_call_output`
+per record; providers that validate the history reject it
+([unreal-agent #11](https://github.com/unreallabsai/unreal-agent/issues/11)).
+
+- The bridge now collapses those duplicates on the wire (the last output per call
+  id wins) and appends a note to `~/.local/state/uachat/bridge.log`; set
+  `UACHAT_BRIDGE_DEBUG=1` to also dump the outgoing body to
+  `~/.local/state/uachat/bridge-last-request.json`.
+- For sessions that already fail on resume: `/repair [name]` writes `<name>-rep`
+  with the duplicate status records removed and the sequences renumbered
+  (`repair-session.py` does the same from the shell), then `/resume <name>-rep`.
+
 ## Limitations (upstream, not client bugs)
 
 - **No token streaming.** `include_partial_messages` is accepted but ignored
