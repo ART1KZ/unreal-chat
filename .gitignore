@@ -1,0 +1,12 @@
+# Credentials and machine-specific state never live in the tree:
+# the runtime config is ~/.config/uachat/env, history ~/.config/uachat/history,
+# core stamp/notes under ~/.local/state/uachat.
+env
+history
+__pycache__/
+*.pyc
+*.log
+tmp/
+.venv/
+core.version
+pending-note
