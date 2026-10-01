@@ -44,9 +44,11 @@ fi
 echo "=== 4. Symlinking uachat CLI ==="
 chmod +x "$REPO_DIR/uarchat.py" "$REPO_DIR/bridge.py" "$REPO_DIR/extract-key.py" "$REPO_DIR/repair-session.py"
 sudo ln -sf "$REPO_DIR/uarchat.py" /usr/local/bin/uachat 2>/dev/null || true
+sudo ln -sf "$REPO_DIR/uarchat.py" /usr/local/bin/unreal-chat 2>/dev/null || true
 mkdir -p "$HOME/.local/bin"
 ln -sf "$REPO_DIR/uarchat.py" "$HOME/.local/bin/uachat"
-echo "  uachat symlinked to /usr/local/bin/uachat and ~/.local/bin/uachat"
+ln -sf "$REPO_DIR/uarchat.py" "$HOME/.local/bin/unreal-chat"
+echo "  uachat & unreal-chat symlinked to /usr/local/bin and ~/.local/bin"
 
 echo "=== 5. Setting up Windows shims (if WSL) ==="
 win_user=""
@@ -94,7 +96,7 @@ exit /b %errorlevel%
 uar_shim = '''@echo off
 call \"%~dp0unreal-agent-runner.cmd\" %*
 '''
-for name, content in [('uachat.cmd', shim), ('unreal-agent-runner.cmd', runner_shim), ('uar.cmd', uar_shim)]:
+for name, content in [('uachat.cmd', shim), ('unreal-chat.cmd', shim), ('unreal-agent-runner.cmd', runner_shim), ('uar.cmd', uar_shim)]:
     path = os.path.join(win_bin, name)
     try:
         with open(path, 'wb') as f:

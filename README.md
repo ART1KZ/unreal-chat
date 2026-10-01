@@ -1,19 +1,26 @@
-# uachat
+# unreal-chat (`uachat`)
 
-Terminal chat client for the [unreal-agent](https://github.com/unreallabsai/unreal-agent) harness.
+[![Release](https://img.shields.io/github/v/release/ART1KZ/unreal-chat?style=flat-square&color=blue)](https://github.com/ART1KZ/unreal-chat/releases)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![Harness](https://img.shields.io/badge/harness-unreal--agent-8b5cf6?style=flat-square)](https://github.com/unreallabsai/unreal-agent)
+[![RTK Compression](https://img.shields.io/badge/RTK-Token%20Compression%20(60--90%25)-ea580c?style=flat-square)](https://github.com/rtk-ai/rtk)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
-`uachat` is a client, not a harness: one prompt starts one `unreal-agent-runner`
+Terminal UI & interactive chat client for the [unreal-agent](https://github.com/unreallabsai/unreal-agent) harness.
+
+`uachat` (or `unreal-chat`) is a client, not a harness: one prompt starts one `unreal-agent-runner`
 process, its JSONL session records are rendered as they arrive, and the
 conversation continues through a persisted session id. The harness itself ships
-no interactive UI — this wraps its `codex exec`-style runner.
+no interactive UI — this wraps its `codex exec`-style runner into an ergonomic,
+batteries-included developer console.
 
 ## Installation
 
 Clone the repository and run `./install.sh`:
 
 ```sh
-git clone https://github.com/ART1KZ/uachat.git
-cd uachat
+git clone https://github.com/ART1KZ/unreal-chat.git
+cd unreal-chat
 ./install.sh
 ```
 
@@ -21,8 +28,8 @@ cd uachat
 1. **Verifies dependencies:** checks `python3` (3.10+), `curl`, `tar`, `sha256sum`, and `git`.
 2. **Installs the harness:** downloads and verifies the official `unreal-agent-runner` release binary against published `SHA256SUMS` to `/usr/local/bin`.
 3. **Installs RTK:** configures [Rust Token Killer](https://github.com/rtk-ai/rtk) and `rtk-shell` to compress Bash tool command outputs by 60–90%.
-4. **Symlinks the CLI:** links `uachat` to `/usr/local/bin/uachat` and `~/.local/bin/uachat`.
-5. **Windows shims (WSL):** automatically creates `uachat.cmd`, `unreal-agent-runner.cmd`, and `uar.cmd` in your Windows `%USERPROFILE%\.local\bin`, allowing you to run `uachat` directly from Windows PowerShell or CMD.
+4. **Symlinks the CLI:** links `uachat` and `unreal-chat` to `/usr/local/bin` and `~/.local/bin`.
+5. **Windows shims (WSL):** automatically creates `uachat.cmd`, `unreal-chat.cmd`, `unreal-agent-runner.cmd`, and `uar.cmd` in your Windows `%USERPROFILE%\.local\bin`, allowing you to run `uachat` directly from Windows PowerShell or CMD.
 6. **Configures environment:** creates `~/.config/uachat/env` with default provider and model settings (extracting credentials from omp if available).
 7. **Secures commits:** hooks `check-secrets.sh` as the Git pre-commit scanner.
 
