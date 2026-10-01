@@ -10,6 +10,7 @@ upstream SSE response back.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -93,10 +94,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Responses API bridge to OpenCode Go")
     parser.add_argument("--listen", default="127.0.0.1:8791", help="host:port to listen on (port 0 picks a free port)")
     parser.add_argument("--target", required=True, help="upstream base URL, e.g. https://opencode.ai/zen/go/v1")
-    parser.add_argument("--key", required=True, help="upstream API key")
+    parser.add_argument("--key", default=os.environ.get("UACHAT_BRIDGE_KEY", ""), help="upstream API key (defaults to $UACHAT_BRIDGE_KEY; prefer the environment so it stays out of `ps`)")
     parser.add_argument("--session", required=True, help="value for x-opencode-session (stable per conversation)")
     parser.add_argument("--user-agent", default="uarchat/0.1", help="User-Agent sent upstream")
     args = parser.parse_args()
+    if not args.key:
+        parser.error("--key or UACHAT_BRIDGE_KEY is required")
 
     host, _, port_text = args.listen.rpartition(":")
     server = ThreadingHTTPServer((host or "127.0.0.1", int(port_text)), make_handler(Bridge(args.target, args.key, args.session, args.user_agent)))

@@ -285,6 +285,9 @@ class Bridge:
 
     def start(self) -> str:
         port = free_port()
+        environment = os.environ.copy()
+        # Keep the upstream key out of `ps`: the child reads it from the environment.
+        environment["UACHAT_BRIDGE_KEY"] = self.key
         self.process = subprocess.Popen(
             [
                 sys.executable,
@@ -293,13 +296,12 @@ class Bridge:
                 f"127.0.0.1:{port}",
                 "--target",
                 self.target,
-                "--key",
-                self.key,
                 "--session",
                 self.session,
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=environment,
             start_new_session=True,
         )
         deadline = time.monotonic() + 5

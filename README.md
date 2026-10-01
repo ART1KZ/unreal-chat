@@ -100,7 +100,8 @@ uachat --update-core        # same as ./update-core.sh
   `__pycache__/`, logs and the state files.
 - `extract-key.py` looks up the credential store via `$UACHAT_OMP_DB`,
   `~/.omp/agent/agent.db`, or `/mnt/c/Users/*/.omp/agent/agent.db`, and writes
-  the key only to `~/.config/uachat/env` (mode 0600).
+  the key only to `~/.config/uachat/env` (mode 0600). The bridge receives the key
+  through the environment, so it never shows up in `ps`.
 - `check-secrets.sh` fails on credential-shaped strings; the repo ships it as a
   pre-commit hook (`.git/hooks/pre-commit` → `exec ./check-secrets.sh`).
 
