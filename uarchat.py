@@ -306,6 +306,11 @@ def provider_key(provider_id: str) -> str:
 
 
 def credential_state(provider_id: str) -> str:
+    if providers_module is not None:
+        try:
+            return str(providers_module.auth_state(provider_id))
+        except Exception:
+            pass
     if provider_key(provider_id):
         return "key"
     return "keyless" if not provider_spec(provider_id).get("needs_key", True) else "no key"
@@ -315,6 +320,7 @@ PROVIDER_DEFAULT_MODELS = {
     "opencode-go": "deepseek-v4.1-flash",
     "openrouter": "deepseek/deepseek-v4.1-flash",
     "openai": "gpt-6-astra",
+    "openai-codex": "gpt-5.6-sol",
     "fireworks": "",
     "ollama": "llama3",
 }
@@ -1000,6 +1006,13 @@ def main(argv: list[str] | None = None) -> int:
             os.environ["UNREAL_HARNESS_LLM_API_KEY"] = key
         else:
             os.environ.pop("UNREAL_HARNESS_LLM_API_KEY", None)
+        # OAuth providers (codex/ChatGPT) hand the harness an auth file instead of a key.
+        if providers_module is not None:
+            try:
+                for name, value in providers_module.auth_env(provider).items():
+                    os.environ[name] = value
+            except Exception as error:
+                return f"({provider}: {error})"
         return spec.get("base_url", "(provider default)")
 
     def build_request(prompt: str) -> dict:

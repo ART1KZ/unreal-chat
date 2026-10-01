@@ -68,6 +68,35 @@ Keys:
   `UACHAT_COLOR=always|never` and `NO_COLOR` override that (`mono` is
   deliberately colourless — if the UI looks grey, check `/theme`).
 
+## Providers
+
+`/provider` switches between them; `/model` lists that provider's models. Keys
+come from the environment or from the omp credential store.
+
+| id | auth | notes |
+| --- | --- | --- |
+| `opencode-go` | API key | goes through `bridge.py` (needs `x-opencode-session`) |
+| `openrouter` | API key | direct |
+| `openai` | API key | direct |
+| `openai-codex` | **ChatGPT subscription (OAuth)** | harness `openai-codex`; see below |
+| `fireworks` | API key | direct |
+| `ollama` | keyless | local server at `127.0.0.1:11434` |
+
+### Codex / ChatGPT
+
+The harness wants a Codex `auth.json` (mode `0600`, `auth_mode: chatgpt`). uachat
+takes the freshest live ChatGPT token from the omp store (`openai-codex` OAuth
+credentials) or from `~/.codex/auth.json` written by the Codex CLI, and copies it
+to `~/.config/uachat/codex/auth.json` before each turn:
+
+```sh
+python3 ~/uachat/codex_auth.py --check          # accounts, expiry, source (no token values)
+python3 ~/uachat/codex_auth.py --use <email>    # pin one of several accounts
+```
+
+Tokens are renewed by omp (or the Codex CLI) on their normal use; when every
+stored token has expired, uachat says so instead of failing mid-turn.
+
 ## Provider setup
 
 Defaults come from `~/.config/uachat/env` (`KEY=VALUE`, non-empty process env wins):
