@@ -276,7 +276,7 @@ def session_preview(path: str) -> str:
     return ""
 
 
-def replay_session(session_id: str, theme: Theme, max_turns: int = 5) -> None:
+def replay_session(session_id: str, theme: Theme, model: str = "", thinking: str = "", max_turns: int = 5) -> None:
     """Display past turns from a resumed session so the user sees the history."""
     path = session_path(session_id)
     if not os.path.isfile(path):
@@ -335,7 +335,9 @@ def replay_session(session_id: str, theme: Theme, max_turns: int = 5) -> None:
             print("    " + theme.paint(f"⏵ {tool_str}", "tool"))
         if t["agent"]:
             print()
-            print("  " + theme.paint("⏺ ", "agent") + theme.paint("agent", "label"))
+            model_tag = model or "agent"
+            hdr = f"{model_tag} ({thinking_glyph(thinking)} {thinking})" if thinking else model_tag
+            print("  " + theme.paint("⏺ ", "agent") + theme.paint(hdr, "label"))
             lines = t["agent"].strip().splitlines()
             for line in lines[:8]:
                 print("  " + theme.paint("│ ", "dim") + line)
@@ -1293,7 +1295,7 @@ def main(argv: list[str] | None = None) -> int:
         print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
         flush_core_note(theme)
         if os.path.isfile(session_path(session_id)):
-            replay_session(session_id, theme)
+            replay_session(session_id, theme, model=model, thinking=thinking)
         kick_off_update_check(config)
         setup_readline(theme)
 
@@ -1584,7 +1586,7 @@ def main(argv: list[str] | None = None) -> int:
                     except RuntimeError as error:
                         print(theme.paint(f"error: {error}", "error"))
                     print(f"session: {session_id}")
-                    replay_session(session_id, theme)
+                    replay_session(session_id, theme, model=state.get("model", ""), thinking=state.get("thinking", ""))
                     continue
                 else:
                     for item in items_raw:
@@ -1623,7 +1625,7 @@ def main(argv: list[str] | None = None) -> int:
                 except RuntimeError as error:
                     print(theme.paint(f"error: {error}", "error"))
                 print(f"session: {session_id}")
-                replay_session(session_id, theme)
+                replay_session(session_id, theme, model=state.get("model", ""), thinking=state.get("thinking", ""))
                 continue
             if prompt.startswith("/new"):
                 _, _, name = prompt.partition(" ")

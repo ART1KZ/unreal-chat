@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # rtk-shell: transparently rewrites commands through RTK before execution
 # Used as SHELL for unreal-agent-runner to compress command outputs (60-90% token savings).
+export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
+
 if [ "$1" = "-c" ] && [ -n "${2:-}" ]; then
   cmd="$2"
   if command -v rtk >/dev/null 2>&1; then

@@ -72,7 +72,15 @@ curl -fsSL --max-time 300 -o "$work/$asset" "$base/$asset"
 curl -fsSL --max-time 60 -o "$work/SHA256SUMS" "$base/SHA256SUMS"
 (cd "$work" && sha256sum -c --ignore-missing --status SHA256SUMS)
 tar -xzf "$work/$asset" -C "$work" unreal-agent-runner
-sudo install -m 0755 "$work/unreal-agent-runner" "$BINARY"
+if sudo -n true 2>/dev/null; then
+  sudo install -m 0755 "$work/unreal-agent-runner" "$BINARY"
+else
+  mkdir -p "$HOME/.local/bin"
+  install -m 0755 "$work/unreal-agent-runner" "$HOME/.local/bin/unreal-agent-runner"
+  if [ -w "/usr/local/bin" ]; then
+    install -m 0755 "$work/unreal-agent-runner" "$BINARY" 2>/dev/null || true
+  fi
+fi
 mkdir -p "$STATE_DIR"
 printf '%s\n' "$latest" > "$STAMP"
 queue_note "core: updated ${installed:-none} → $latest"
