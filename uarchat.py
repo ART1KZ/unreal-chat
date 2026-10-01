@@ -643,12 +643,17 @@ class Spinner:
                             status_text = f"thinking ({elapsed:4.1f}s)"
                         elif elapsed < 20.0:
                             status_text = f"deep reasoning ({elapsed:4.1f}s)"
-                        else:
+                        elif elapsed < 40.0:
                             status_text = f"deep reasoning in progress · model active ({elapsed:4.1f}s)"
+                        else:
+                            status_text = f"model taking longer than usual ({elapsed:4.1f}s)"
                     elif self.phase.startswith("executing"):
                         status_text = f"{self.phase} ({elapsed:4.1f}s)"
                     else:
-                        status_text = f"working {elapsed:4.1f}s"
+                        if elapsed < 35.0:
+                            status_text = f"working {elapsed:4.1f}s"
+                        else:
+                            status_text = f"working longer than usual ({elapsed:4.1f}s)"
                 line = (
                     self.theme.paint(f"  {frame} ", "accent")
                     + self.theme.paint(status_text, "dim")
@@ -682,7 +687,7 @@ class Renderer:
         self.started_at = time.monotonic()
         self.printed_operations: set[str] = set()
         self.last_assistant = ""
-
+        self.last_error = ""
     # --- events
 
     def begin_turn(self) -> None:
@@ -788,6 +793,7 @@ class Renderer:
         if exit_code not in (0, None):
             self.error(f"exit code {exit_code}")
     def error(self, message: str) -> None:
+        self.last_error = message
         print("  " + self.theme.paint("✖ ", "error") + self.theme.paint(message, "error"))
 
     def end_turn(self, code: int) -> None:
@@ -1543,7 +1549,8 @@ def main(argv: list[str] | None = None) -> int:
                 last_interrupt = time.monotonic()
                 notify("uachat", "turn interrupted")
             else:
-                notify("uachat", f"turn failed (exit {code})")
+                err_hint = short(renderer.last_error, 40) if renderer.last_error else f"exit {code}"
+                notify("uachat", f"failed: {err_hint}")
         return 0
     finally:
         if bridge is not None:
