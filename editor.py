@@ -24,6 +24,12 @@ Notes
 * Menu items accept the token under the cursor (up to the nearest whitespace),
   so typing ``/th`` and pressing Tab with ``("/theme", ...)`` yields ``/theme``
   with the cursor right after it.
+* With the menu open, ``Enter`` (and ``Right`` at the end of the line) accepts
+  the highlighted entry instead of sending the line, as long as its token
+  differs from what is already under the cursor.  The suggestions are then
+  re-queried for the new text, so the menu cascades (a completed command, then
+  its arguments) and a second ``Enter`` sends the line once the token is an
+  exact match or the menu has closed.
 """
 
 from __future__ import annotations
@@ -211,8 +217,9 @@ class Editor:
                 if kind == "text":
                     self._insert(value)
                 elif value == "enter":
-                    completed = True
-                    break
+                    if not self._accept_pending():
+                        completed = True
+                        break
                 elif value == "ctrl-d":
                     if not self._buffer:
                         raise EOFError("end of input")
@@ -228,7 +235,8 @@ class Editor:
                 elif value == "left":
                     self._pos = max(0, self._pos - 1)
                 elif value == "right":
-                    self._pos = min(len(self._buffer), self._pos + 1)
+                    if not (self._pos >= len(self._buffer) and self._accept_pending()):
+                        self._pos = min(len(self._buffer), self._pos + 1)
                 elif value in ("home", "ctrl-a"):
                     self._pos = 0
                 elif value in ("end", "ctrl-e"):
@@ -433,6 +441,33 @@ class Editor:
         self._draft = ""
         self._refresh()
         self._dismissed = True  # menu stays closed until the buffer changes again
+
+    def _accept_pending(self) -> bool:
+        """Enter/Right: take the highlighted hint when the token is not final.
+
+        Returns ``False`` when the caller must keep its default behaviour (send
+        the line, or step the cursor): the menu is closed, or the token under
+        the cursor already equals the highlighted entry.  Otherwise the token
+        is replaced and the suggestions are re-queried for the new text, so the
+        menu can cascade (``/thinking`` -> effort levels) and the next Enter
+        sends the line once the token is an exact match.
+        """
+        if not self._menu_open():
+            return False
+        text = self._sugg[self._sel][0]
+        if not text:
+            return False
+        start, end = self._word_bounds()
+        if self._buffer[start:end] == text:
+            return False  # exact match: nothing left to accept, send the line
+        self._accept()
+        # ``_accept`` closes the menu; keep it open only while the inserted
+        # token can be selected again.  A token containing whitespace cannot
+        # (the cursor token ends at the space), and leaving the menu open there
+        # would make repeated Enter keep accepting forever.
+        token_start, token_end = self._word_bounds()
+        self._dismissed = self._buffer[token_start:token_end] != text
+        return True
 
     def _navigate(self, step: int) -> None:
         """Arrows drive the menu while it is open, otherwise the history."""

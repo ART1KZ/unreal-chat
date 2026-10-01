@@ -28,7 +28,8 @@ In-chat commands (TAB completes commands and their arguments, ↑/↓ walk histo
 | `/sessions` | list recent sessions with their first prompt |
 | `/resume <name>` | switch to an existing session |
 | `/session` | print the current session id |
-| `/model [id]` | show or switch the model (`refresh` re-reads the gateway) |
+| `/provider [id]` | show or switch the provider (opencode-go, openrouter, openai, fireworks, ollama); picks a matching model automatically |
+| `/model [id]` | show or switch the model (`refresh` re-reads the provider) |
 | `/thinking [lvl]` | show or switch the reasoning effort (`next` cycles) |
 | `/theme <name>`, `/themes` | switch theme (persisted to the config file) |
 | `/copy` | copy the last answer to the clipboard (OSC 52; works over WSL/SSH) |
@@ -40,6 +41,8 @@ Keys:
 | Key | Effect |
 | --- | --- |
 | `Tab` | accept the highlighted hint |
+| `Enter` | accept the highlighted hint when it differs from what you typed; otherwise send |
+| `→` | accept at end of line, otherwise move the cursor |
 | `↑`/`↓` | move inside the hint menu, else walk history |
 | `Esc` | close the hint menu |
 | `Ctrl-C` | clear the draft; twice within 4 s leaves the client |

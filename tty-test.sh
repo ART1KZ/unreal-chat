@@ -36,6 +36,15 @@ out=$(run "0.6:/th\t\n" "0.4:/exit\n")
 check "tab completes a command and Enter runs it" "$out" "current thinking:"
 check "hint menu lists commands" "$out" "/thinking  pick the reasoning effort"
 
+out=$(run "0.6:/th\n" "0.7:\n" "0.4:/exit\n")
+check "Enter accepts the highlighted hint instead of sending" "$out" "current thinking:"
+
+out=$(run "0.6:/model dee\n" "0.7:\n" "0.4:/exit\n")
+check "Enter accepts a highlighted model argument" "$out" "model: deepseek-"
+
+out=$(run "0.6:/provider\n" "0.4:/exit\n")
+check "provider picker lists the providers" "$out" "openrouter"
+
 out=$(run "0.6:/model \n" "0.4:/exit\n")
 check "argument menu lists gateway models" "$out" "deepseek-v4.1-flash"
 

@@ -39,6 +39,10 @@ try:
     import models as models_module
 except ImportError:  # pragma: no cover - models.py absent
     models_module = None
+try:
+    import providers as providers_module
+except ImportError:  # pragma: no cover - providers.py absent
+    providers_module = None
 
 VERSION = "0.3"
 
@@ -96,7 +100,7 @@ THEMES: dict[str, dict[str, str]] = {
 
 COMMANDS = (
     "/help", "/new", "/sessions", "/resume", "/session",
-    "/model", "/thinking", "/theme", "/themes", "/copy", "/dump", "/exit", "/quit",
+    "/provider", "/model", "/thinking", "/theme", "/themes", "/copy", "/dump", "/exit", "/quit",
 )
 COMMAND_HELP = {
     "/help": "this text",
@@ -104,6 +108,7 @@ COMMAND_HELP = {
     "/sessions": "list recent sessions",
     "/resume": "switch to an existing session",
     "/session": "print the current session id",
+    "/provider": "pick the provider (opencode-go, openrouter, openai, ...)",
     "/model": "pick the model",
     "/thinking": "pick the reasoning effort",
     "/theme": "pick a colour theme",
@@ -258,7 +263,103 @@ def valid_session_name(name: str) -> bool:
     return bool(name) and "/" not in name and "\\" not in name and name not in (".", "..")
 
 
-_MODEL_CACHE: list[str] = []
+_MODEL_CACHE: dict[str, list[str]] = {}
+
+DEFAULT_PROVIDER = "opencode-go"
+FALLBACK_PROVIDER_SPEC = {
+    "id": DEFAULT_PROVIDER,
+    "label": "OpenCode Go",
+    "harness": "openai",
+    "base_url": "https://opencode.ai/zen/go/v1",
+    "bridge": True,
+    "needs_key": True,
+}
+
+
+def provider_ids() -> list[str]:
+    if providers_module is not None:
+        return list(getattr(providers_module, "PROVIDER_IDS", [DEFAULT_PROVIDER]))
+    return [DEFAULT_PROVIDER]
+
+
+def provider_spec(provider_id: str) -> dict:
+    if providers_module is not None:
+        try:
+            return dict(providers_module.spec(provider_id))
+        except Exception:
+            pass
+    return dict(FALLBACK_PROVIDER_SPEC, id=provider_id, label=provider_id)
+
+
+def provider_key(provider_id: str) -> str:
+    if providers_module is not None:
+        try:
+            return providers_module.key_for(provider_id) or ""
+        except Exception:
+            return ""
+    if provider_id == DEFAULT_PROVIDER:
+        return os.environ.get("UACHAT_BRIDGE_KEY", "")
+    return ""
+
+
+def credential_state(provider_id: str) -> str:
+    if provider_key(provider_id):
+        return "key"
+    return "keyless" if not provider_spec(provider_id).get("needs_key", True) else "no key"
+
+
+PROVIDER_DEFAULT_MODELS = {
+    "opencode-go": "deepseek-v4.1-flash",
+    "openrouter": "deepseek/deepseek-v4.1-flash",
+    "openai": "gpt-6-astra",
+    "fireworks": "",
+    "ollama": "llama3",
+}
+
+
+def choose_model(provider_id: str, ids: list[str], prefer: str = "") -> str:
+    """Pick a usable model when switching providers: keep the current one if possible."""
+    if prefer and (not ids or prefer in ids):
+        return prefer
+    tail = prefer.split("/")[-1]
+    if tail:
+        for item in ids:
+            if item.split("/")[-1] == tail:
+                return item
+    wanted = PROVIDER_DEFAULT_MODELS.get(provider_id, "")
+    if wanted:
+        if not ids or wanted in ids:
+            return wanted
+        wanted_tail = wanted.split("/")[-1]
+        for item in ids:
+            if item.split("/")[-1] == wanted_tail:
+                return item
+    return ids[0] if ids else ""
+
+
+def available_models(provider: str = "", refresh: bool = False) -> list[str]:
+    """Model ids for a provider (cached), with the built-in fallback for the default one."""
+    provider = provider or os.environ.get("UACHAT_PROVIDER") or DEFAULT_PROVIDER
+    if not refresh and _MODEL_CACHE.get(provider):
+        return _MODEL_CACHE[provider]
+    ids: list[str] = []
+    if providers_module is not None and provider in provider_ids():
+        try:
+            ids = list(providers_module.models(provider))
+        except Exception:
+            ids = []
+    if not ids and provider == DEFAULT_PROVIDER:
+        if models_module is not None:
+            try:
+                source, key = models_module.models_source(os.environ)
+                if source:
+                    ids = list(models_module.list_models(source, key))
+            except Exception:
+                ids = []
+        if not ids:
+            ids = fallback_models()
+    _MODEL_CACHE[provider] = ids
+    return ids
 
 THINKING_GLYPHS = {
     "minimal": "○", "low": "◔", "medium": "◑", "high": "◒", "xhigh": "◕", "max": "◉", "": "·",
@@ -324,26 +425,7 @@ def effort_levels() -> list[str]:
     return ["low", "medium", "high", "xhigh", "max"]
 
 
-def available_models(refresh: bool = False) -> list[str]:
-    """Model ids from the configured gateway (cached), with a built-in fallback."""
-    global _MODEL_CACHE
-    if _MODEL_CACHE and not refresh:
-        return _MODEL_CACHE
-    ids: list[str] = []
-    if models_module is not None:
-        try:
-            source, key = models_module.models_source(os.environ)
-            if source:
-                ids = list(models_module.list_models(source, key))
-        except Exception:
-            ids = []
-    if not ids:
-        ids = fallback_models()
-    _MODEL_CACHE = ids
-    return ids
-
-
-def command_suggestions(text: str, theme: "Theme") -> list[tuple[str, str]]:
+def command_suggestions(text: str, theme: "Theme", provider: str = "") -> list[tuple[str, str]]:
     """(replacement token, description) pairs for live hints above the input.
 
     The editor inserts the token at the cursor, so entries are token-relative:
@@ -357,10 +439,16 @@ def command_suggestions(text: str, theme: "Theme") -> list[tuple[str, str]]:
         return [(name, COMMAND_HELP.get(name, "")) for name in COMMANDS if name.startswith(text)]
     if head == "/model":
         return [
-            (item, "model")
-            for item in available_models()
+            (item, provider or DEFAULT_PROVIDER)
+            for item in available_models(provider)
             if not rest or rest.lower() in item.lower()
         ][:10]
+    if head == "/provider":
+        return [
+            (item, provider_spec(item).get("label", item))
+            for item in provider_ids()
+            if not rest or item.startswith(rest)
+        ]
     if head == "/thinking":
         return [
             (level, "reasoning effort")
@@ -770,10 +858,11 @@ def _save_history() -> None:
         pass
 
 
-def banner(theme: Theme, workspace: str, session: str, model: str, endpoint: str) -> str:
+def banner(theme: Theme, workspace: str, session: str, model: str, endpoint: str, provider: str = "") -> str:
     rows = [
         ("workspace", workspace),
         ("session", f"{session}   /sessions · /new [name]"),
+        ("provider", f"{provider}   /provider · /model"),
         ("model", model),
         ("endpoint", endpoint),
         ("theme", f"{theme.name}   /themes · /theme <name>"),
@@ -792,7 +881,8 @@ HELP = """commands:
   /sessions        list recent sessions with their first prompt
   /resume <name>   switch to an existing session
   /session         print the current session id
-  /model [id]      show or switch the model (/model refresh re-reads the gateway)
+  /provider [id]   show or switch the provider (opencode-go, openrouter, openai, fireworks, ollama)
+  /model [id]      show or switch the model (/model refresh re-reads the provider)
   /thinking [lvl]  show or switch the reasoning effort (/thinking next cycles)
   /themes          list themes
   /theme <name>    switch theme and remember it
@@ -862,28 +952,38 @@ def main(argv: list[str] | None = None) -> int:
 
     workspace = os.path.abspath(args.workspace)
     session_id = args.session or uuid.uuid4().hex[:12]
+    provider = (os.environ.get("UACHAT_PROVIDER") or config.get("UACHAT_PROVIDER") or DEFAULT_PROVIDER).strip()
     if args.provider:
         os.environ["UNREAL_HARNESS_LLM_PROVIDER"] = args.provider
 
     bridge: Bridge | None = None
 
     def apply_environment(current_session: str) -> str:
-        """Route the harness through a local bridge when one is configured."""
+        """Point the harness at the selected provider (through the bridge when needed)."""
         nonlocal bridge
-        if explicit_base_url:
-            return explicit_base_url
-        target = os.environ.get("UACHAT_BRIDGE_TARGET", "").strip()
-        key = os.environ.get("UACHAT_BRIDGE_KEY", "").strip()
-        if not target or not key:
-            return os.environ.get("UNREAL_HARNESS_LLM_BASE_URL", "(provider default)")
         if bridge is not None:
             bridge.stop()
-        bridge = Bridge(target, key, current_session)
-        base_url = bridge.start()
-        os.environ["UNREAL_HARNESS_LLM_PROVIDER"] = "openai"
-        os.environ["UNREAL_HARNESS_LLM_BASE_URL"] = base_url
-        os.environ["UNREAL_HARNESS_LLM_API_KEY"] = "bridge"
-        return f"{base_url} → {target}"
+            bridge = None
+        if explicit_base_url:
+            return explicit_base_url
+        spec = provider_spec(provider)
+        key = provider_key(provider)
+        if spec.get("bridge"):
+            if not key:
+                return f"(no key for {provider})"
+            bridge = Bridge(spec["base_url"], key, current_session)
+            base_url = bridge.start()
+            os.environ["UNREAL_HARNESS_LLM_PROVIDER"] = spec.get("harness", "openai")
+            os.environ["UNREAL_HARNESS_LLM_BASE_URL"] = base_url
+            os.environ["UNREAL_HARNESS_LLM_API_KEY"] = "bridge"
+            return f"{base_url} → {spec['base_url']}"
+        os.environ["UNREAL_HARNESS_LLM_PROVIDER"] = spec.get("harness", provider)
+        os.environ["UNREAL_HARNESS_LLM_BASE_URL"] = spec.get("base_url", "")
+        if key:
+            os.environ["UNREAL_HARNESS_LLM_API_KEY"] = key
+        else:
+            os.environ.pop("UNREAL_HARNESS_LLM_API_KEY", None)
+        return spec.get("base_url", "(provider default)")
 
     def build_request(prompt: str) -> dict:
         request: dict = {"prompt": prompt, "session_id": session_id}
@@ -907,19 +1007,28 @@ def main(argv: list[str] | None = None) -> int:
             spinner = Spinner(theme, spinner_on)
             return run_turn(args.binary, workspace, build_request(args.prompt), renderer, spinner)
 
-        print(banner(theme, workspace, session_id, model_line, str(endpoint)))
+        print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
         flush_core_note(theme)
         kick_off_update_check(config)
         setup_readline(theme)
 
         state = {"model": args.model or os.environ.get("UNREAL_HARNESS_LLM_MODEL", ""), "thinking": thinking}
+        # The provider catalogue moves: keep a stale configured model from breaking the first turn.
+        known = available_models(provider, refresh=True)
+        if known and state["model"] and state["model"] not in known:
+            picked = choose_model(provider, known, state["model"])
+            if picked:
+                print(theme.paint(f"  model {state['model']} is gone from {provider}; using {picked}", "warn"))
+                state["model"] = picked
+                os.environ["UNREAL_HARNESS_LLM_MODEL"] = picked
+                save_config_value("UNREAL_HARNESS_LLM_MODEL", picked)
         transcript: list[tuple[str, str]] = []
         reader = None
         if editor_module is not None and getattr(editor_module, "AVAILABLE", False):
             try:
                 reader = editor_module.Editor(
                     history_path=HISTORY_PATH,
-                    suggestions=lambda text: command_suggestions(text, theme),
+                    suggestions=lambda text: command_suggestions(text, theme, provider),
                     paint=lambda text, key: theme.paint(text, key),
                 )
             except Exception:
@@ -958,12 +1067,46 @@ def main(argv: list[str] | None = None) -> int:
             if prompt == "/themes":
                 print(", ".join(f"*{name}*" if name == theme.name else name for name in theme.names()))
                 continue
+            if prompt.startswith("/provider"):
+                _, _, value = prompt.partition(" ")
+                value = value.strip()
+                known = provider_ids()
+                if not value:
+                    print(f"current provider: {provider}")
+                    for item in known:
+                        item_spec = provider_spec(item)
+                        mark = "*" if item == provider else " "
+                        print(f" {mark} {item:<14} {item_spec.get('base_url', ''):<40} {credential_state(item)}")
+                    print(theme.paint("   /provider <id> · /model lists that provider's models", "dim"))
+                elif value not in known:
+                    print(theme.paint(f"unknown provider {value}; known: {', '.join(known)}", "error"))
+                else:
+                    provider = value
+                    os.environ["UACHAT_PROVIDER"] = value
+                    save_config_value("UACHAT_PROVIDER", value)
+                    try:
+                        endpoint = apply_environment(session_id)
+                        print(f"provider: {value} → {endpoint}")
+                    except RuntimeError as error:
+                        print(theme.paint(f"error: {error}", "error"))
+                    ids = available_models(provider, refresh=True)
+                    current = state["model"]
+                    if ids and current and current not in ids:
+                        picked = choose_model(provider, ids, current)
+                        if picked:
+                            state["model"] = picked
+                            os.environ["UNREAL_HARNESS_LLM_MODEL"] = picked
+                            save_config_value("UNREAL_HARNESS_LLM_MODEL", picked)
+                            print(f"model: {picked} (default for {value})")
+                    elif not ids:
+                        print(theme.paint(f"   note: no model list for {value} (key? server?)", "warn"))
+                continue
             if prompt.startswith("/model"):
                 _, _, value = prompt.partition(" ")
                 value = value.strip()
                 if not value:
-                    ids = available_models()
-                    print(f"current model: {state['model'] or '(provider default)'}")
+                    ids = available_models(provider)
+                    print(f"provider: {provider} · current model: {state['model'] or '(provider default)'}")
                     for index, item in enumerate(ids[:16], start=1):
                         mark = "*" if item == state["model"] else " "
                         print(f" {mark} {item}")
@@ -971,13 +1114,14 @@ def main(argv: list[str] | None = None) -> int:
                         print(theme.paint(f"   … {len(ids) - 16} more (/model <substring>)", "dim"))
                     print(theme.paint("   /model <id> · /model refresh", "dim"))
                 elif value == "refresh":
-                    print(f"models: {len(available_models(refresh=True))}")
+                    print(f"models: {len(available_models(provider, refresh=True))}")
                 else:
-                    known = available_models()
+                    known = available_models(provider)
                     state["model"] = value
                     os.environ["UNREAL_HARNESS_LLM_MODEL"] = value
                     save_config_value("UNREAL_HARNESS_LLM_MODEL", value)
-                    print(f"model: {value}" + ("" if not known or value in known else theme.paint(" (not in the gateway list)", "warn")))
+                    suffix = "" if not known or value in known else theme.paint(" (not in the provider list)", "warn")
+                    print(f"model: {value}{suffix}")
                 continue
             if prompt.startswith("/thinking"):
                 _, _, value = prompt.partition(" ")
