@@ -30,7 +30,14 @@ run() {
 
 mkdir -p "$work"
 export UACHAT_NOTIFY=off
+unset UACHAT_PROVIDER 2>/dev/null || true
 cp "$HOME/.config/uachat/env" /tmp/tty-env.backup 2>/dev/null || true
+# Ensure initial provider in config is opencode-go
+if grep -q "^UACHAT_PROVIDER=" "$HOME/.config/uachat/env"; then
+  sed -i "s/^UACHAT_PROVIDER=.*/UACHAT_PROVIDER=opencode-go/" "$HOME/.config/uachat/env"
+else
+  echo "UACHAT_PROVIDER=opencode-go" >> "$HOME/.config/uachat/env"
+fi
 
 # 1. Tab completion: /th + Tab completes /thinking, menu lists commands
 out=$(run "0.5:/th\t" "0.5:\x1b" "0.4:/exit\n")
@@ -41,14 +48,15 @@ check "hint menu lists commands" "$out" "/thinking  pick the reasoning effort"
 out=$(run "0.5:/th\n" "0.5:\x1b" "0.4:/exit\n")
 check "Enter accepts the highlighted hint in autocomplete" "$out" "/thinking"
 
-# 3. Interactive /provider picker with arrow navigation (selects openai-codex)
+# 3. Interactive /provider picker with arrow navigation (starts at opencode-go, Down selects openai-codex)
 out=$(run "0.5:/provider\n" "0.5:\x1b[B" "0.5:\n" "0.4:/exit\n")
 check "interactive provider picker moves with Down arrow and selects" "$out" "provider: openai-codex"
 
-# 4. Interactive /model picker with live typing filter in openai-codex, followed by chained thinking picker
+# 4. Interactive /model picker with live typing filter in openai-codex, then chained thinking picker
 out=$(run "0.5:/model\n" "0.5:sol" "0.5:\n" "0.5:\n" "0.4:/exit\n")
 check "interactive model picker filters by typing and selects" "$out" "model: gpt-5.6-sol"
 check "chained thinking picker confirms effort" "$out" "thinking:"
+
 # 5. Inline model completion after space (/model gpt + Tab) in openai-codex
 out=$(run "0.5:/model gpt\t" "0.5:\x1b" "0.4:/exit\n")
 check "tab completes a model argument inline" "$out" "/model gpt-"

@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -57,6 +58,18 @@ STATE_DIR = os.path.join(
 )
 CHECK_STAMP = os.path.join(STATE_DIR, "last-check")
 NOTE_PATH = os.path.join(STATE_DIR, "pending-note")
+STREAM_STATE_PATH = os.path.join(STATE_DIR, "stream-state.json")
+
+
+def read_stream_state() -> dict | None:
+    try:
+        with open(STREAM_STATE_PATH, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if time.monotonic() - float(data.get("updated_at", 0)) < 3.0:
+            return data
+    except (OSError, ValueError, TypeError):
+        pass
+    return None
 SESSION_DIR = os.path.join(
     os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
     "unreal-agent",
@@ -593,7 +606,11 @@ class Spinner:
         self.thread: threading.Thread | None = None
         self.stop_event = threading.Event()
         self.started_at = 0.0
+        self.phase = "model"
         self.lock = threading.Lock()
+
+    def set_phase(self, phase: str) -> None:
+        self.phase = phase
 
     def start(self) -> None:
         if not self.enabled or self.thread is not None:
@@ -609,9 +626,32 @@ class Spinner:
             while not self.stop_event.is_set():
                 frame = self.FRAMES[index % len(self.FRAMES)]
                 elapsed = time.monotonic() - self.started_at
+                info = read_stream_state()
+                status_text = ""
+                if info:
+                    state_kind = info.get("state")
+                    if state_kind == "streaming":
+                        tok_s = float(info.get("tok_s") or 0)
+                        toks = int(info.get("tokens") or 0)
+                        tok_disp = f"{toks / 1000:.1f}k" if toks >= 1000 else str(toks)
+                        status_text = f"generating · ~{tok_s:.0f} tok/s · {tok_disp} tok"
+                    elif state_kind == "awaiting":
+                        status_text = f"thinking / awaiting model ({elapsed:4.1f}s)"
+                if not status_text:
+                    if self.phase == "thinking":
+                        if elapsed < 5.0:
+                            status_text = f"thinking ({elapsed:4.1f}s)"
+                        elif elapsed < 20.0:
+                            status_text = f"deep reasoning ({elapsed:4.1f}s)"
+                        else:
+                            status_text = f"deep reasoning in progress · model active ({elapsed:4.1f}s)"
+                    elif self.phase.startswith("executing"):
+                        status_text = f"{self.phase} ({elapsed:4.1f}s)"
+                    else:
+                        status_text = f"working {elapsed:4.1f}s"
                 line = (
                     self.theme.paint(f"  {frame} ", "accent")
-                    + self.theme.paint(f"working {elapsed:4.1f}s", "dim")
+                    + self.theme.paint(status_text, "dim")
                     + self.theme.paint(" · Esc to interrupt", "dim")
                 )
                 sys.stdout.write("\r\033[K" + line)
@@ -720,17 +760,33 @@ class Renderer:
         combined = output
         if error_output.strip():
             combined = (combined + "\n" + error_output).strip("\n")
-        lines = combined.split("\n") if combined else []
-        for index, line in enumerate(lines[:MAX_RESULT_LINES]):
-            prefix = "    ⎿ " if index == 0 else "      "
-            print(self.theme.paint(prefix + short(line, self.width - 8), "result"))
-        if len(lines) > MAX_RESULT_LINES:
-            path = state.get("OutPath") or ""
-            print(self.theme.paint(f"      … {len(lines) - MAX_RESULT_LINES} more lines ({path})", "dim"))
+        raw_lines = combined.split("\n") if combined else []
+        # Filter out noisy progress meters (curl / wget Dload/Upload bars)
+        lines = []
+        for line in raw_lines:
+            s = line.strip()
+            if not s:
+                continue
+            if "% Total" in s and "% Received" in s:
+                continue
+            if "Dload" in s and "Upload" in s and "Speed" in s:
+                continue
+            if re.match(r"^([\d\.\-kMG]+\s+)+([\d\.\-kMG]+|--:--:--|\d+:\d+:\d+)\s*$", s):
+                continue
+            lines.append(line)
+        if not lines and combined.strip() and result.get("ExitCode") in (0, None):
+            # All output was just a progress bar that finished cleanly
+            print(self.theme.paint("    ⎿ (done)", "dim"))
+        else:
+            for index, line in enumerate(lines[:MAX_RESULT_LINES]):
+                prefix = "    ⎿ " if index == 0 else "      "
+                print(self.theme.paint(prefix + short(line, self.width - 8), "result"))
+            if len(lines) > MAX_RESULT_LINES:
+                path = state.get("OutPath") or ""
+                print(self.theme.paint(f"      … {len(lines) - MAX_RESULT_LINES} more lines ({path})", "dim"))
         exit_code = result.get("ExitCode")
         if exit_code not in (0, None):
             self.error(f"exit code {exit_code}")
-
     def error(self, message: str) -> None:
         print("  " + self.theme.paint("✖ ", "error") + self.theme.paint(message, "error"))
 
@@ -739,7 +795,11 @@ class Renderer:
         parts = []
         if self.input_tokens or self.output_tokens:
             cached = f" · cached {self.cached_tokens}" if self.cached_tokens else ""
-            parts.append(f"in {self.input_tokens}{cached} · out {self.output_tokens}")
+            out_part = f"out {self.output_tokens}"
+            if elapsed > 0.3 and self.output_tokens > 0:
+                speed = self.output_tokens / elapsed
+                out_part += f" (~{speed:.0f} tok/s)"
+            parts.append(f"in {self.input_tokens}{cached} · {out_part}")
         parts.append(f"{elapsed:.1f}s")
         print(self.theme.paint("  ╵ " + " · ".join(parts), "dim"))
         if code not in (0, 130):
@@ -874,6 +934,9 @@ def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spi
 
     watcher = InterruptWatcher(on_esc)
     watcher.start()
+    thinking_level = request.get("thinking_level")
+    model_phase = "thinking" if thinking_level in ("high", "max", "xhigh") else "model"
+    spinner.set_phase(model_phase)
     try:
         try:
             assert proc.stdin is not None
@@ -888,7 +951,18 @@ def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spi
             line = line.strip()
             if line:
                 try:
-                    renderer.handle(json.loads(line))
+                    record = json.loads(line)
+                    renderer.handle(record)
+                    kind = record.get("Kind")
+                    if kind == "model_response":
+                        outputs = (record.get("Data") or {}).get("Response", {}).get("Output") or []
+                        tool_names = [o.get("Data", {}).get("Name") for o in outputs if o.get("Type") == "tool_call"]
+                        if tool_names:
+                            spinner.set_phase(f"executing {tool_names[0]}")
+                        else:
+                            spinner.set_phase(model_phase)
+                    elif kind == "tool_call_status":
+                        spinner.set_phase(model_phase)
                 except json.JSONDecodeError:
                     renderer.error(f"runner: {line}")
             spinner.start()

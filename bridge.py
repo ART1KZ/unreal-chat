@@ -64,6 +64,7 @@ def make_handler(bridge: Bridge):
             url = bridge.target + "/responses"
             request = urllib.request.Request(url, data=body, method="POST", headers=bridge.headers())
             status = 502
+            _write_stream_state("awaiting", started_at=time.monotonic())
             try:
                 upstream = urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS)
                 status = upstream.status
@@ -71,6 +72,7 @@ def make_handler(bridge: Bridge):
                 upstream = error
                 status = error.code
             except OSError as error:
+                _write_stream_state("idle")
                 sys.stderr.write(f"bridge: upstream error: {error}\n")
                 payload = b'{"error":{"message":"bridge upstream unreachable"}}'
                 self.send_response(502)
@@ -85,20 +87,31 @@ def make_handler(bridge: Bridge):
             self.send_header("Connection", "close")
             self.end_headers()
             total = 0
+            events_count = 0
+            stream_start = time.monotonic()
+            last_progress_write = 0.0
             try:
                 while True:
                     chunk = upstream.read(CHUNK)
                     if not chunk:
                         break
                     total += len(chunk)
+                    events_count += chunk.count(b"data:")
+                    now = time.monotonic()
+                    if now - last_progress_write >= 0.08:
+                        last_progress_write = now
+                        elapsed = max(0.001, now - stream_start)
+                        tok_est = max(events_count, int(total / 3.5))
+                        tok_s = tok_est / elapsed
+                        _write_stream_state("streaming", tokens=tok_est, tok_s=tok_s, bytes_total=total, elapsed=elapsed)
                     self.wfile.write(chunk)
                     self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 pass
             finally:
                 upstream.close()
+                _write_stream_state("idle")
             sys.stderr.write(f"bridge: {path} -> {status} ({total} bytes)\n")
-
         def log_message(self, fmt: str, *args) -> None:
             sys.stderr.write("bridge: " + fmt % args + "\n")
 
@@ -153,6 +166,23 @@ def dump_request(body: bytes) -> None:
         with open(path, "wb") as handle:
             handle.write(body)
         os.chmod(path, 0o600)
+    except OSError:
+        pass
+STREAM_STATE_PATH = os.path.join(
+    os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
+    "uachat",
+    "stream-state.json",
+)
+
+
+def _write_stream_state(state: str, **kwargs) -> None:
+    try:
+        os.makedirs(os.path.dirname(STREAM_STATE_PATH), exist_ok=True)
+        payload = {"state": state, "updated_at": time.monotonic(), **kwargs}
+        tmp = STREAM_STATE_PATH + f".{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        os.replace(tmp, STREAM_STATE_PATH)
     except OSError:
         pass
 
