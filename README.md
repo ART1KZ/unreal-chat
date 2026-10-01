@@ -61,6 +61,9 @@ Keys:
 - Desktop toast on turn completion/failure (OSC 9 + `notify-send`; disable with
   `UACHAT_NOTIFY=off`).
 - Six 256-colour themes: `midnight`, `nord`, `gruvbox`, `neon`, `paper`, `mono`.
+  Colour is on when stdout is a terminal; `--color always|never`,
+  `UACHAT_COLOR=always|never` and `NO_COLOR` override that (`mono` is
+  deliberately colourless — if the UI looks grey, check `/theme`).
 
 ## Provider setup
 

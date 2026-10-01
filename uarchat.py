@@ -833,6 +833,12 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config()
     if args.no_color:
         args.color = "never"
+    if args.color == "auto":
+        override = (os.environ.get("UACHAT_COLOR") or "").strip().lower()
+        if override in ("always", "never", "auto"):
+            args.color = override
+        elif os.environ.get("NO_COLOR"):
+            args.color = "never"
     if args.color == "always":
         use_color = True
     elif args.color == "never":
