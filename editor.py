@@ -51,9 +51,10 @@ except ImportError:  # pragma: no cover - platform dependent
     termios = None  # type: ignore[assignment]
     tty = None  # type: ignore[assignment]
 
-__all__ = ["AVAILABLE", "Editor"]
+__all__ = ["AVAILABLE", "Editor", "pick"]
 
 RESET = "\033[0m"
+BOLD = "1"
 HIDE_CURSOR = "\033[?25l"
 SHOW_CURSOR = "\033[?25h"
 CLEAR_TO_END = "\033[J"
@@ -537,66 +538,239 @@ class Editor:
     # ------------------------------------------------------------------ input
 
     def _read_key(self) -> tuple[str, str]:
-        """Return ('text', char) or ('key', name)."""
-        try:
-            first = os.read(self._fd, 1)
-        except OSError as error:  # a pty whose master went away reports EIO
-            raise EOFError("stdin closed") from error
-        if not first:
-            raise EOFError("stdin closed")
-        byte = first[0]
-        if byte == 0x03:
-            raise KeyboardInterrupt
-        if byte == 0x04:
-            return ("key", "ctrl-d")
-        if byte in (0x0D, 0x0A):
-            return ("key", "enter")
-        if byte in (0x7F, 0x08):
-            return ("key", "backspace")
-        if byte == 0x09:
-            return ("key", "tab")
-        if byte == 0x1B:
-            return self._read_escape()
-        if byte < 0x20:
-            return ("key", CONTROLS.get(byte, f"ctrl-{chr(byte + 96)}"))
-        if byte < 0x80:
-            return ("text", chr(byte))
-        extra = 1 if byte < 0xE0 else (2 if byte < 0xF0 else 3)
-        data = first
-        for _ in range(extra):
-            if not select.select([self._fd], [], [], 0.1)[0]:
-                break
-            more = os.read(self._fd, 1)
-            if not more:
-                break
-            data += more
-        return ("text", data.decode("utf-8", errors="replace"))
+        return read_raw_key(self._fd)
 
     def _read_escape(self) -> tuple[str, str]:
-        """Parse the bytes after ESC: a key sequence, or a lone ESC."""
-        rest = ""
-        timeout = 0.05
-        while len(rest) < 8:
-            if not select.select([self._fd], [], [], timeout)[0]:
-                break
-            chunk = os.read(self._fd, 1)
-            if not chunk:
-                break
-            rest += chunk.decode("latin-1")
-            if rest[0] not in ("[", "O"):
-                break  # ESC plus a plain character (Alt-key): not a sequence
-            if len(rest) > 1 and (rest[-1].isalpha() or rest[-1] in "~@"):
-                break  # the introducer alone is not the end of a sequence
-            timeout = 0.02
-        if not rest:
-            return ("key", "esc")
-        if rest[0] in ("[", "O"):
-            sequence = rest[1:]
-            if sequence in SEQUENCES:
-                return ("key", SEQUENCES[sequence])
-            if sequence and sequence[-1] in SEQUENCES:
-                return ("key", SEQUENCES[sequence[-1]])  # e.g. \x1b[1;5D
-        return ("key", "unknown")
+        return read_raw_escape(self._fd)
+
+
+def read_raw_key(fd: int) -> tuple[str, str]:
+    """Return ('text', char) or ('key', name) from a raw-mode file descriptor."""
+    try:
+        first = os.read(fd, 1)
+    except OSError as error:
+        raise EOFError("stdin closed") from error
+    if not first:
+        raise EOFError("stdin closed")
+    byte = first[0]
+    if byte == 0x03:
+        raise KeyboardInterrupt
+    if byte == 0x04:
+        return ("key", "ctrl-d")
+    if byte in (0x0D, 0x0A):
+        return ("key", "enter")
+    if byte in (0x7F, 0x08):
+        return ("key", "backspace")
+    if byte == 0x09:
+        return ("key", "tab")
+    if byte == 0x1B:
+        return read_raw_escape(fd)
+    if byte < 0x20:
+        return ("key", CONTROLS.get(byte, f"ctrl-{chr(byte + 96)}"))
+    if byte < 0x80:
+        return ("text", chr(byte))
+    extra = 1 if byte < 0xE0 else (2 if byte < 0xF0 else 3)
+    data = first
+    for _ in range(extra):
+        if not select.select([fd], [], [], 0.1)[0]:
+            break
+        more = os.read(fd, 1)
+        if not more:
+            break
+        data += more
+    return ("text", data.decode("utf-8", errors="replace"))
+
+
+def read_raw_escape(fd: int) -> tuple[str, str]:
+    """Parse the bytes after ESC: a key sequence, or a lone ESC."""
+    rest = ""
+    timeout = 0.05
+    while len(rest) < 8:
+        if not select.select([fd], [], [], timeout)[0]:
+            break
+        chunk = os.read(fd, 1)
+        if not chunk:
+            break
+        rest += chunk.decode("latin-1")
+        if rest[0] not in ("[", "O"):
+            break
+        if len(rest) > 1 and (rest[-1].isalpha() or rest[-1] in "~@"):
+            break
+        timeout = 0.02
+    if not rest:
+        return ("key", "esc")
+    if rest[0] in ("[", "O"):
+        sequence = rest[1:]
+        if sequence in SEQUENCES:
+            return ("key", SEQUENCES[sequence])
+        if sequence and sequence[-1] in SEQUENCES:
+            return ("key", SEQUENCES[sequence[-1]])
+    return ("key", "unknown")
+
+
+def pick(
+    items: list[tuple[str, str]],
+    title: str,
+    current: str = "",
+    theme_paint: Callable[..., str] | None = None,
+    filterable: bool = True,
+    max_rows: int = 12,
+) -> str | None:
+    """Interactive full-featured arrow-key selector with live search filtering.
+
+    Parameters
+    ----------
+    items : list of (value, description)
+    title : header string displayed above the menu
+    current : the currently active value (marked with [x])
+    theme_paint : optional styling callable `paint(text, key, style="")`
+    filterable : if True, typing characters filters the item list in real-time
+    max_rows : maximum visible rows before scrolling kicks in
+
+    Returns the selected value, or None if cancelled with Esc / Ctrl-C.
+    """
+    if not AVAILABLE or not items:
+        return None
+    try:
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+    except (OSError, ValueError, AttributeError, termios.error):
+        return None
+
+    def paint(text: str, key: str, style: str = "") -> str:
+        if not theme_paint:
+            return text
+        try:
+            return theme_paint(text, key, style)
+        except TypeError:
+            return theme_paint(text, key)
+
+    query = ""
+    sel = 0
+    for idx, it in enumerate(items):
+        if it and it[0] == current:
+            sel = idx
+            break
+    offset = 0
+    drawn = 0
+
+    try:
+        try:
+            tty.setraw(fd, termios.TCSADRAIN)
+        except TypeError:
+            tty.setraw(fd)
+        sys.stdout.write(HIDE_CURSOR)
+        while True:
+            cols, rows = shutil.get_terminal_size((80, 24))
+            page_size = min(max_rows, max(3, rows - 5))
+
+            if query:
+                q = query.lower()
+                matching = [it for it in items if q in str(it[0]).lower() or (len(it) > 1 and q in str(it[1]).lower())]
+            else:
+                matching = list(items)
+
+            if not matching:
+                sel = 0
+                offset = 0
+            else:
+                sel = max(0, min(sel, len(matching) - 1))
+                if sel < offset:
+                    offset = sel
+                elif sel >= offset + page_size:
+                    offset = sel - page_size + 1
+
+            if drawn > 0:
+                sys.stdout.write(f"\033[{drawn}A\r{CLEAR_TO_END}")
+
+            lines: list[str] = []
+            hdr = paint(f"  {title}", "title", BOLD)
+            if filterable:
+                hdr += paint(f"  (filter: {query}█)", "accent") if query else paint("  (type to filter)", "dim")
+            lines.append(hdr)
+            lines.append(paint("  " + "─" * min(cols - 4, 60), "dim"))
+
+            if not matching:
+                lines.append(paint("    (no matching options)", "warn"))
+            else:
+                visible = matching[offset : offset + page_size]
+                for idx, it in enumerate(visible):
+                    real_idx = offset + idx
+                    val = str(it[0])
+                    desc = str(it[1]) if len(it) > 1 and it[1] else ""
+                    is_sel = (real_idx == sel)
+                    is_cur = (val == current)
+                    ptr = "❯ " if is_sel else "  "
+                    mark = "[x] " if is_cur else "    "
+                    if is_sel:
+                        row = REVERSE + paint(f"  {ptr}", "accent") + paint(mark, "ok") + paint(f" {val} ", "title", BOLD)
+                        if desc:
+                            row += paint(f"  {desc} ", "dim")
+                        row += RESET
+                    else:
+                        row = f"  {ptr}" + paint(mark, "ok" if is_cur else "dim") + paint(val, "user")
+                        if desc:
+                            row += paint(f"  {desc}", "dim")
+                    lines.append(_fit(row, cols - 1))
+
+            foot = paint("  ↑/↓ move · Enter select · Esc cancel", "dim")
+            if matching and len(matching) > page_size:
+                foot += paint(f"  ({sel + 1}/{len(matching)})", "dim")
+            lines.append(foot)
+
+            sys.stdout.write(NL.join(lines) + NL)
+            sys.stdout.flush()
+            drawn = len(lines)
+
+            kind, value = read_raw_key(fd)
+            if value == "enter":
+                if matching:
+                    return matching[sel][0]
+                return None
+            if value in ("esc", "ctrl-c"):
+                return None
+            if value == "up":
+                if matching:
+                    sel = (sel - 1) % len(matching)
+            elif value == "down":
+                if matching:
+                    sel = (sel + 1) % len(matching)
+            elif value == "pageup":
+                if matching:
+                    sel = max(0, sel - page_size)
+            elif value == "pagedown":
+                if matching:
+                    sel = min(len(matching) - 1, sel + page_size)
+            elif value in ("home", "ctrl-a"):
+                sel = 0
+            elif value in ("end", "ctrl-e"):
+                if matching:
+                    sel = len(matching) - 1
+            elif filterable and value == "backspace":
+                if query:
+                    query = query[:-1]
+                    sel = 0
+                    offset = 0
+            elif filterable and value == "ctrl-u":
+                if query:
+                    query = ""
+                    sel = 0
+                    offset = 0
+            elif filterable and kind == "text":
+                if value.isprintable():
+                    query += value
+                    sel = 0
+                    offset = 0
+    finally:
+        if drawn > 0:
+            sys.stdout.write(f"\033[{drawn}A\r{CLEAR_TO_END}")
+            sys.stdout.flush()
+        sys.stdout.write(SHOW_CURSOR)
+        sys.stdout.flush()
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        except (OSError, termios.error):
+            pass
 
 
 # --------------------------------------------------------------------- demo

@@ -120,7 +120,6 @@ COMMAND_HELP = {
     "/exit": "leave",
     "/quit": "leave",
 }
-COMMAND_WITH_ARGS = {"/model", "/thinking", "/theme", "/resume", "/provider", "/new", "/dump", "/repair"}
 MAX_RESULT_LINES = 24
 MAX_ARG_CHARS = 160
 # Ctrl-C twice within this window (at the prompt, or right after an interrupted
@@ -445,12 +444,7 @@ def command_suggestions(text: str, theme: "Theme", provider: str = "") -> list[t
     head, _, rest = text.partition(" ")
     rest = rest.strip()
     if " " not in text:  # completing the command itself
-        matches = [(name, COMMAND_HELP.get(name, "")) for name in COMMANDS if name.startswith(text)]
-        if text in COMMAND_WITH_ARGS:
-            # A complete command is a single-row menu: offer the argument form so
-            # arrow keys have somewhere to go and land in the argument menu.
-            matches.append((text + " ", "arguments"))
-        return matches
+        return [(name, COMMAND_HELP.get(name, "")) for name in COMMANDS if name.startswith(text)]
     if head == "/model":
         return [
             (item, provider or DEFAULT_PROVIDER)
@@ -1102,79 +1096,121 @@ def main(argv: list[str] | None = None) -> int:
                 value = value.strip()
                 known = provider_ids()
                 if not value:
-                    print(f"current provider: {provider}")
-                    for item in known:
-                        item_spec = provider_spec(item)
-                        mark = "*" if item == provider else " "
-                        print(f" {mark} {item:<14} {item_spec.get('base_url', ''):<40} {credential_state(item)}")
-                    print(theme.paint("   /provider <id> · /model lists that provider's models", "dim"))
-                elif value not in known:
+                    if editor_module is not None and getattr(editor_module, "AVAILABLE", False):
+                        p_items = [
+                            (item, f"{provider_spec(item).get('base_url', '')} [{credential_state(item)}]")
+                            for item in known
+                        ]
+                        chosen = editor_module.pick(
+                            p_items,
+                            title="Select provider",
+                            current=provider,
+                            theme_paint=theme.paint,
+                            filterable=False,
+                        )
+                        if not chosen:
+                            continue
+                        value = chosen
+                    else:
+                        print(f"current provider: {provider}")
+                        for item in known:
+                            item_spec = provider_spec(item)
+                            mark = "*" if item == provider else " "
+                            print(f" {mark} {item:<14} {item_spec.get('base_url', ''):<40} {credential_state(item)}")
+                        print(theme.paint("   /provider <id> · /model lists that provider's models", "dim"))
+                        continue
+                if value not in known:
                     print(theme.paint(f"unknown provider {value}; known: {', '.join(known)}", "error"))
-                else:
-                    provider = value
-                    os.environ["UACHAT_PROVIDER"] = value
-                    save_config_value("UACHAT_PROVIDER", value)
-                    try:
-                        endpoint = apply_environment(session_id)
-                        print(f"provider: {value} → {endpoint}")
-                    except RuntimeError as error:
-                        print(theme.paint(f"error: {error}", "error"))
-                    ids = available_models(provider, refresh=True)
-                    current = state["model"]
-                    if ids and current and current not in ids:
-                        picked = choose_model(provider, ids, current)
-                        if picked:
-                            state["model"] = picked
-                            os.environ["UNREAL_HARNESS_LLM_MODEL"] = picked
-                            save_config_value("UNREAL_HARNESS_LLM_MODEL", picked)
-                            print(f"model: {picked} (default for {value})")
-                    elif not ids:
-                        print(theme.paint(f"   note: no model list for {value} (key? server?)", "warn"))
+                    continue
+                provider = value
+                os.environ["UACHAT_PROVIDER"] = value
+                save_config_value("UACHAT_PROVIDER", value)
+                try:
+                    endpoint = apply_environment(session_id)
+                    print(f"provider: {value} → {endpoint}")
+                except RuntimeError as error:
+                    print(theme.paint(f"error: {error}", "error"))
+                ids = available_models(provider, refresh=True)
+                current = state["model"]
+                if ids and current and current not in ids:
+                    picked = choose_model(provider, ids, current)
+                    if picked:
+                        state["model"] = picked
+                        os.environ["UNREAL_HARNESS_LLM_MODEL"] = picked
+                        save_config_value("UNREAL_HARNESS_LLM_MODEL", picked)
+                        print(f"model: {picked} (default for {value})")
+                elif not ids:
+                    print(theme.paint(f"   note: no model list for {value} (key? server?)", "warn"))
                 continue
             if prompt.startswith("/model"):
                 _, _, value = prompt.partition(" ")
                 value = value.strip()
                 if not value:
                     ids = available_models(provider)
-                    print(f"provider: {provider} · current model: {state['model'] or '(provider default)'}")
-                    for index, item in enumerate(ids[:16], start=1):
-                        mark = "*" if item == state["model"] else " "
-                        print(f" {mark} {item}")
-                    if len(ids) > 16:
-                        print(theme.paint(f"   … {len(ids) - 16} more (/model <substring>)", "dim"))
-                    print(theme.paint("   /model <id> · /model refresh", "dim"))
-                elif value == "refresh":
+                    if editor_module is not None and getattr(editor_module, "AVAILABLE", False) and ids:
+                        m_items = [(item, provider) for item in ids]
+                        chosen = editor_module.pick(
+                            m_items,
+                            title=f"Select model for {provider}",
+                            current=state["model"],
+                            theme_paint=theme.paint,
+                            filterable=True,
+                            max_rows=12,
+                        )
+                        if not chosen:
+                            continue
+                        value = chosen
+                    else:
+                        print(f"provider: {provider} · current model: {state['model'] or '(provider default)'}")
+                        for index, item in enumerate(ids[:16], start=1):
+                            mark = "*" if item == state["model"] else " "
+                            print(f" {mark} {item}")
+                        if len(ids) > 16:
+                            print(theme.paint(f"   … {len(ids) - 16} more (/model <substring>)", "dim"))
+                        print(theme.paint("   /model <id> · /model refresh", "dim"))
+                        continue
+                if value == "refresh":
                     print(f"models: {len(available_models(provider, refresh=True))}")
-                else:
-                    known = available_models(provider)
-                    state["model"] = value
-                    os.environ["UNREAL_HARNESS_LLM_MODEL"] = value
-                    save_config_value("UNREAL_HARNESS_LLM_MODEL", value)
-                    suffix = "" if not known or value in known else theme.paint(" (not in the provider list)", "warn")
-                    print(f"model: {value}{suffix}")
+                    continue
+                known = available_models(provider)
+                state["model"] = value
+                os.environ["UNREAL_HARNESS_LLM_MODEL"] = value
+                save_config_value("UNREAL_HARNESS_LLM_MODEL", value)
+                suffix = "" if not known or value in known else theme.paint(" (not in the provider list)", "warn")
+                print(f"model: {value}{suffix}")
                 continue
             if prompt.startswith("/thinking"):
                 _, _, value = prompt.partition(" ")
                 value = value.strip()
                 levels = effort_levels()
                 if not value:
-                    print(f"current thinking: {state['thinking'] or '(provider default)'}")
-                    print("   " + ", ".join(f"*{level}*" if level == state["thinking"] else level for level in levels))
-                    print(theme.paint("   /thinking <level> · /thinking next", "dim"))
-                elif value == "next":
+                    if editor_module is not None and getattr(editor_module, "AVAILABLE", False):
+                        t_items = [(lvl, f"effort {thinking_glyph(lvl)}") for lvl in levels]
+                        chosen = editor_module.pick(
+                            t_items,
+                            title="Select reasoning effort",
+                            current=state["thinking"],
+                            theme_paint=theme.paint,
+                            filterable=False,
+                        )
+                        if not chosen:
+                            continue
+                        value = chosen
+                    else:
+                        print(f"current thinking: {state['thinking'] or '(provider default)'}")
+                        print("   " + ", ".join(f"*{level}*" if level == state["thinking"] else level for level in levels))
+                        print(theme.paint("   /thinking <level> · /thinking next", "dim"))
+                        continue
+                if value == "next":
                     current = state["thinking"] if state["thinking"] in levels else levels[-1]
                     value = levels[(levels.index(current) + 1) % len(levels)]
-                    state["thinking"] = value
-                    os.environ["UACHAT_THINKING"] = value
-                    save_config_value("UACHAT_THINKING", value)
-                    print(f"thinking: {thinking_glyph(value)} {value}")
                 elif value not in levels:
                     print(theme.paint(f"unknown level {value}; use one of {', '.join(levels)}", "error"))
-                else:
-                    state["thinking"] = value
-                    os.environ["UACHAT_THINKING"] = value
-                    save_config_value("UACHAT_THINKING", value)
-                    print(f"thinking: {thinking_glyph(value)} {value}")
+                    continue
+                state["thinking"] = value
+                os.environ["UACHAT_THINKING"] = value
+                save_config_value("UACHAT_THINKING", value)
+                print(f"thinking: {thinking_glyph(value)} {value}")
                 continue
             if prompt == "/copy" or prompt.startswith("/copy "):
                 text = transcript[-1][1] if transcript else ""
@@ -1209,8 +1245,22 @@ def main(argv: list[str] | None = None) -> int:
                 _, _, name = prompt.partition(" ")
                 name = name.strip()
                 if not name:
-                    print(f"current theme: {theme.name}; available: {', '.join(theme.names())}")
-                elif name not in THEMES:
+                    if editor_module is not None and getattr(editor_module, "AVAILABLE", False):
+                        th_items = [(t_name, "colour theme") for t_name in theme.names()]
+                        chosen = editor_module.pick(
+                            th_items,
+                            title="Select colour theme",
+                            current=theme.name,
+                            theme_paint=theme.paint,
+                            filterable=False,
+                        )
+                        if not chosen:
+                            continue
+                        name = chosen
+                    else:
+                        print(f"current theme: {theme.name}; available: {', '.join(theme.names())}")
+                        continue
+                if name not in THEMES:
                     print(theme.paint(f"unknown theme {name}; available: {', '.join(theme.names())}", "error"))
                 else:
                     theme = Theme(name, use_color)
@@ -1218,17 +1268,61 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"theme: {name} (saved)")
                 continue
             if prompt == "/sessions":
-                items = list_sessions()
-                if not items:
+                items_raw = list_sessions()
+                if not items_raw:
                     print("no sessions yet")
-                for item in items:
-                    stamp = time.strftime("%m-%d %H:%M", time.localtime(float(item["mtime"])))
-                    marker = "*" if item["name"] == session_id else " "
-                    print(f"{marker} {item['name']:<28} {stamp}  {item['preview']}")
-                continue
+                    continue
+                if editor_module is not None and getattr(editor_module, "AVAILABLE", False):
+                    s_items = []
+                    for item in items_raw:
+                        stamp = time.strftime("%m-%d %H:%M", time.localtime(float(item["mtime"])))
+                        desc = f"{stamp}  {item['preview']}" if item["preview"] else stamp
+                        s_items.append((str(item["name"]), desc))
+                    chosen = editor_module.pick(
+                        s_items,
+                        title="Select session to resume",
+                        current=session_id,
+                        theme_paint=theme.paint,
+                        filterable=True,
+                        max_rows=10,
+                    )
+                    if not chosen:
+                        continue
+                    session_id = chosen
+                    try:
+                        apply_environment(session_id)
+                    except RuntimeError as error:
+                        print(theme.paint(f"error: {error}", "error"))
+                    print(f"session: {session_id}")
+                    continue
+                else:
+                    for item in items_raw:
+                        stamp = time.strftime("%m-%d %H:%M", time.localtime(float(item["mtime"])))
+                        marker = "*" if item["name"] == session_id else " "
+                        print(f"{marker} {item['name']:<28} {stamp}  {item['preview']}")
+                    continue
             if prompt.startswith("/resume"):
                 _, _, name = prompt.partition(" ")
                 name = name.strip()
+                if not name:
+                    if editor_module is not None and getattr(editor_module, "AVAILABLE", False):
+                        items_raw = list_sessions()
+                        s_items = []
+                        for item in items_raw:
+                            stamp = time.strftime("%m-%d %H:%M", time.localtime(float(item["mtime"])))
+                            desc = f"{stamp}  {item['preview']}" if item["preview"] else stamp
+                            s_items.append((str(item["name"]), desc))
+                        chosen = editor_module.pick(
+                            s_items,
+                            title="Select session to resume",
+                            current=session_id,
+                            theme_paint=theme.paint,
+                            filterable=True,
+                            max_rows=10,
+                        )
+                        if not chosen:
+                            continue
+                        name = chosen
                 if not valid_session_name(name) or not os.path.exists(session_path(name)):
                     print(theme.paint(f"no such session: {name or '(none given)'}", "error"))
                     continue
