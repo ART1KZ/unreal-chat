@@ -40,7 +40,7 @@ try:
 except ImportError:  # pragma: no cover - models.py absent
     models_module = None
 
-VERSION = "0.2"
+VERSION = "0.3"
 
 CONFIG_PATH = os.path.expanduser("~/.config/uachat/env")
 HISTORY_PATH = os.path.expanduser("~/.config/uachat/history")
@@ -782,7 +782,7 @@ def banner(theme: Theme, workspace: str, session: str, model: str, endpoint: str
     lines = [theme.paint(f"  uachat {VERSION}", "title", BOLD) + theme.paint(" · unreal-agent harness client", "dim")]
     for label, value in rows:
         lines.append("  " + theme.paint(f"{label:<{width}}", "label") + "  " + value)
-    lines.append(theme.paint("  /help for commands, /exit to leave", "dim"))
+    lines.append(theme.paint("  /help for commands · Tab completes · /exit to leave", "dim"))
     return "\n".join(lines)
 
 
