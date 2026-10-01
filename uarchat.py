@@ -275,12 +275,18 @@ def session_preview(path: str) -> str:
         pass
     return ""
 
+def clear_screen() -> None:
+    """Clear the terminal screen and scrollback buffer when in a terminal."""
+    if sys.stdout.isatty():
+        sys.stdout.write("\x1b[3J\x1b[H\x1b[2J")
+        sys.stdout.flush()
 
-def replay_session(session_id: str, theme: Theme, model: str = "", thinking: str = "", max_turns: int = 5) -> None:
-    """Display past turns from a resumed session so the user sees the history."""
+
+def replay_session(session_id: str, theme: Theme, model: str = "", thinking: str = "", max_turns: int = 5) -> list[tuple[str, str]]:
+    """Display past turns from a resumed session and return the transcript entries."""
     path = session_path(session_id)
     if not os.path.isfile(path):
-        return
+        return []
     turns: list[dict] = []
     current_turn: dict = {"user": None, "tools": [], "agent": None}
 
@@ -315,10 +321,17 @@ def replay_session(session_id: str, theme: Theme, model: str = "", thinking: str
         if current_turn["user"] is not None or current_turn["agent"] is not None:
             turns.append(current_turn)
     except OSError:
-        return
+        return []
+
+    resumed_transcript: list[tuple[str, str]] = []
+    for t in turns:
+        if t["user"]:
+            resumed_transcript.append(("you", t["user"]))
+        if t["agent"]:
+            resumed_transcript.append(("agent", t["agent"]))
 
     if not turns:
-        return
+        return resumed_transcript
 
     total = len(turns)
     shown = turns[-max_turns:]
@@ -345,6 +358,7 @@ def replay_session(session_id: str, theme: Theme, model: str = "", thinking: str
                 print("  " + theme.paint(f"  │ … ({len(lines) - 8} more lines)", "dim"))
         print()
     print(theme.paint(f"  ─── resumed session {session_id} ({total} turns loaded) ───\n", "dim"))
+    return resumed_transcript
 
 
 def valid_session_name(name: str) -> bool:
@@ -1294,8 +1308,9 @@ def main(argv: list[str] | None = None) -> int:
 
         print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
         flush_core_note(theme)
+        transcript: list[tuple[str, str]] = []
         if os.path.isfile(session_path(session_id)):
-            replay_session(session_id, theme, model=model, thinking=thinking)
+            transcript = replay_session(session_id, theme, model=model, thinking=thinking)
         kick_off_update_check(config)
         setup_readline(theme)
 
@@ -1309,7 +1324,6 @@ def main(argv: list[str] | None = None) -> int:
                 state["model"] = picked
                 os.environ["UNREAL_HARNESS_LLM_MODEL"] = picked
                 save_config_value("UNREAL_HARNESS_LLM_MODEL", picked)
-        transcript: list[tuple[str, str]] = []
         reader = None
         if editor_module is not None and getattr(editor_module, "AVAILABLE", False):
             try:
@@ -1582,11 +1596,13 @@ def main(argv: list[str] | None = None) -> int:
                         continue
                     session_id = chosen
                     try:
-                        apply_environment(session_id)
+                        endpoint = apply_environment(session_id)
                     except RuntimeError as error:
                         print(theme.paint(f"error: {error}", "error"))
-                    print(f"session: {session_id}")
-                    replay_session(session_id, theme, model=state.get("model", ""), thinking=state.get("thinking", ""))
+                    clear_screen()
+                    model_line = f"{state.get('model', '')} · {thinking_glyph(state.get('thinking', ''))} {state.get('thinking', '')}" if state.get("thinking") else str(state.get("model", ""))
+                    print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
+                    transcript = replay_session(session_id, theme, model=state.get("model", ""), thinking=state.get("thinking", ""))
                     continue
                 else:
                     for item in items_raw:
@@ -1621,11 +1637,13 @@ def main(argv: list[str] | None = None) -> int:
                     continue
                 session_id = name
                 try:
-                    apply_environment(session_id)
+                    endpoint = apply_environment(session_id)
                 except RuntimeError as error:
                     print(theme.paint(f"error: {error}", "error"))
-                print(f"session: {session_id}")
-                replay_session(session_id, theme, model=state.get("model", ""), thinking=state.get("thinking", ""))
+                clear_screen()
+                model_line = f"{state.get('model', '')} · {thinking_glyph(state.get('thinking', ''))} {state.get('thinking', '')}" if state.get("thinking") else str(state.get("model", ""))
+                print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
+                transcript = replay_session(session_id, theme, model=state.get("model", ""), thinking=state.get("thinking", ""))
                 continue
             if prompt.startswith("/new"):
                 _, _, name = prompt.partition(" ")
@@ -1635,10 +1653,14 @@ def main(argv: list[str] | None = None) -> int:
                     continue
                 session_id = name
                 try:
-                    apply_environment(session_id)
+                    endpoint = apply_environment(session_id)
                 except RuntimeError as error:
                     print(theme.paint(f"error: {error}", "error"))
-                print(f"new session: {session_id}")
+                clear_screen()
+                transcript.clear()
+                model_line = f"{state.get('model', '')} · {thinking_glyph(state.get('thinking', ''))} {state.get('thinking', '')}" if state.get("thinking") else str(state.get("model", ""))
+                print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
+                print(f"new session: {session_id}\n")
                 continue
             renderer = Renderer(theme, model=state.get("model", ""), thinking=state.get("thinking", ""))
             spinner = Spinner(theme, spinner_on)
