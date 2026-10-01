@@ -7,6 +7,25 @@ process, its JSONL session records are rendered as they arrive, and the
 conversation continues through a persisted session id. The harness itself ships
 no interactive UI — this wraps its `codex exec`-style runner.
 
+## Installation
+
+Clone the repository and run `./install.sh`:
+
+```sh
+git clone https://github.com/ART1KZ/uachat.git
+cd uachat
+./install.sh
+```
+
+### What `install.sh` does:
+1. **Verifies dependencies:** checks `python3` (3.10+), `curl`, `tar`, `sha256sum`, and `git`.
+2. **Installs the harness:** downloads and verifies the official `unreal-agent-runner` release binary against published `SHA256SUMS` to `/usr/local/bin`.
+3. **Installs RTK:** configures [Rust Token Killer](https://github.com/rtk-ai/rtk) and `rtk-shell` to compress Bash tool command outputs by 60–90%.
+4. **Symlinks the CLI:** links `uachat` to `/usr/local/bin/uachat` and `~/.local/bin/uachat`.
+5. **Windows shims (WSL):** automatically creates `uachat.cmd`, `unreal-agent-runner.cmd`, and `uar.cmd` in your Windows `%USERPROFILE%\.local\bin`, allowing you to run `uachat` directly from Windows PowerShell or CMD.
+6. **Configures environment:** creates `~/.config/uachat/env` with default provider and model settings (extracting credentials from omp if available).
+7. **Secures commits:** hooks `check-secrets.sh` as the Git pre-commit scanner.
+
 ## Usage
 
 ```sh
