@@ -32,4 +32,9 @@ PY
 
 echo
 echo "=== 4. colour always emits ANSI ==="
+cp "$HOME/.config/uachat/env" /tmp/surface-env.backup 2>/dev/null || true
 printf 'ping\n/theme mono\n/exit\n' | $client -w "$work" -s theme-check --color always 2>&1 | head -n 6 | cat -v | head -n 4
+# The /theme command persists; restore the user's setting so the test stays neutral.
+cp /tmp/surface-env.backup "$HOME/.config/uachat/env" 2>/dev/null && chmod 600 "$HOME/.config/uachat/env"
+rm -f /tmp/surface-env.backup
+echo "(theme setting restored after the test)"

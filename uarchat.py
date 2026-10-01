@@ -27,6 +27,19 @@ try:  # POSIX only; absent on Windows
 except ImportError:  # pragma: no cover
     readline = None
 
+# Optional client-side modules shipped next to this file.
+_HERE = os.path.dirname(os.path.realpath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+try:
+    import editor as editor_module
+except ImportError:  # pragma: no cover - editor.py absent
+    editor_module = None
+try:
+    import models as models_module
+except ImportError:  # pragma: no cover - models.py absent
+    models_module = None
+
 VERSION = "0.2"
 
 CONFIG_PATH = os.path.expanduser("~/.config/uachat/env")
@@ -81,9 +94,30 @@ THEMES: dict[str, dict[str, str]] = {
     },
 }
 
-COMMANDS = ("/help", "/new", "/sessions", "/resume", "/session", "/theme", "/themes", "/exit", "/quit")
+COMMANDS = (
+    "/help", "/new", "/sessions", "/resume", "/session",
+    "/model", "/thinking", "/theme", "/themes", "/copy", "/dump", "/exit", "/quit",
+)
+COMMAND_HELP = {
+    "/help": "this text",
+    "/new": "start a fresh session",
+    "/sessions": "list recent sessions",
+    "/resume": "switch to an existing session",
+    "/session": "print the current session id",
+    "/model": "pick the model",
+    "/thinking": "pick the reasoning effort",
+    "/theme": "pick a colour theme",
+    "/themes": "list themes",
+    "/copy": "copy the last answer to the clipboard",
+    "/dump": "write the transcript to a file",
+    "/exit": "leave",
+    "/quit": "leave",
+}
 MAX_RESULT_LINES = 24
 MAX_ARG_CHARS = 160
+# Ctrl-C twice within this window (at the prompt, or right after an interrupted
+# turn) leaves the client.
+DOUBLE_INTERRUPT_WINDOW = 4.0
 
 
 # --------------------------------------------------------------------------- config
@@ -222,6 +256,131 @@ def session_preview(path: str) -> str:
 
 def valid_session_name(name: str) -> bool:
     return bool(name) and "/" not in name and "\\" not in name and name not in (".", "..")
+
+
+_MODEL_CACHE: list[str] = []
+
+THINKING_GLYPHS = {
+    "minimal": "○", "low": "◔", "medium": "◑", "high": "◒", "xhigh": "◕", "max": "◉", "": "·",
+}
+
+
+def thinking_glyph(level: str) -> str:
+    return THINKING_GLYPHS.get((level or "").strip().lower(), "◑")
+
+
+def notify(title: str, body: str) -> None:
+    """Terminal toast (OSC 9 + BEL) plus a desktop notification when available."""
+    value = (os.environ.get("UACHAT_NOTIFY") or "on").strip().lower()
+    if value in ("off", "0", "false", "no"):
+        return
+    try:
+        sys.stdout.write(f"\x1b]9;{title}: {body}\x07\a")
+        sys.stdout.flush()
+    except Exception:
+        pass
+    sender = shutil.which("notify-send")
+    if sender:
+        try:
+            subprocess.Popen(
+                [sender, "--app-name=uachat", title, body],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError:
+            pass
+
+
+def copy_to_clipboard(text: str) -> None:
+    """OSC 52 works through WSL/SSH without extra tooling."""
+    import base64
+
+    encoded = base64.b64encode(text.encode("utf-8")).decode("ascii")
+    sys.stdout.write(f"\x1b]52;c;{encoded}\x07")
+    sys.stdout.flush()
+
+
+def dump_transcript(session: str, entries: list[tuple[str, str]]) -> str:
+    directory = os.path.join(STATE_DIR, "transcripts")
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, f"{session}-{time.strftime('%Y%m%d-%H%M%S')}.md")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(f"# uachat transcript · session {session}\n\n")
+        for role, text in entries:
+            handle.write(f"## {role}\n\n{text}\n\n")
+    return path
+
+
+def fallback_models() -> list[str]:
+    if models_module is not None:
+        return list(getattr(models_module, "FALLBACK_MODELS", []))
+    return []
+
+
+def effort_levels() -> list[str]:
+    if models_module is not None:
+        return list(models_module.effort_options())
+    return ["low", "medium", "high", "xhigh", "max"]
+
+
+def available_models(refresh: bool = False) -> list[str]:
+    """Model ids from the configured gateway (cached), with a built-in fallback."""
+    global _MODEL_CACHE
+    if _MODEL_CACHE and not refresh:
+        return _MODEL_CACHE
+    ids: list[str] = []
+    if models_module is not None:
+        try:
+            source, key = models_module.models_source(os.environ)
+            if source:
+                ids = list(models_module.list_models(source, key))
+        except Exception:
+            ids = []
+    if not ids:
+        ids = fallback_models()
+    _MODEL_CACHE = ids
+    return ids
+
+
+def command_suggestions(text: str, theme: "Theme") -> list[tuple[str, str]]:
+    """(replacement token, description) pairs for live hints above the input.
+
+    The editor inserts the token at the cursor, so entries are token-relative:
+    before the space it completes command names, after it completes arguments.
+    """
+    if not text.startswith("/"):
+        return []
+    head, _, rest = text.partition(" ")
+    rest = rest.strip()
+    if " " not in text:  # completing the command itself
+        return [(name, COMMAND_HELP.get(name, "")) for name in COMMANDS if name.startswith(text)]
+    if head == "/model":
+        return [
+            (item, "model")
+            for item in available_models()
+            if not rest or rest.lower() in item.lower()
+        ][:10]
+    if head == "/thinking":
+        return [
+            (level, "reasoning effort")
+            for level in effort_levels()
+            if not rest or level.startswith(rest)
+        ]
+    if head == "/theme":
+        return [
+            (name, "theme")
+            for name in theme.names()
+            if not rest or name.startswith(rest)
+        ]
+    if head == "/resume":
+        out: list[tuple[str, str]] = []
+        for item in list_sessions():
+            name = str(item["name"])
+            if not rest or name.startswith(rest):
+                out.append((name, str(item["preview"])[:44] or "session"))
+        return out[:10]
+    return []
 
 
 def free_port() -> int:
@@ -381,6 +540,7 @@ class Renderer:
         self.cached_tokens = 0
         self.started_at = time.monotonic()
         self.printed_operations: set[str] = set()
+        self.last_assistant = ""
 
     # --- events
 
@@ -423,6 +583,7 @@ class Renderer:
         text = text.strip("\n")
         if not text:
             return
+        self.last_assistant = text
         print()
         print("  " + self.theme.paint("⏺ ", "agent") + self.theme.paint("agent", "label"))
         gutter = self.theme.paint("  │ ", "dim")
@@ -576,11 +737,15 @@ def setup_readline(theme: Theme) -> None:
     readline.set_history_length(500)
     atexit.register(_save_history)
 
-    def completer(text: str, state: int) -> str | None:
+    def completer(text: str, state_index: int) -> str | None:
         buffer = readline.get_line_buffer()
         matches: list[str] = []
         if buffer.startswith("/theme ") or buffer.startswith("/themes "):
             matches = [name for name in theme.names() if name.startswith(text)]
+        elif buffer.startswith("/model "):
+            matches = [item for item in available_models() if text.lower() in item.lower()][:10]
+        elif buffer.startswith("/thinking "):
+            matches = [level for level in effort_levels() if level.startswith(text)]
         elif buffer.startswith("/resume "):
             matches = [
                 str(item["name"]) for item in list_sessions()
@@ -588,7 +753,7 @@ def setup_readline(theme: Theme) -> None:
             ]
         elif text.startswith("/"):
             matches = [command for command in COMMANDS if command.startswith(text)]
-        return matches[state] if state < len(matches) else None
+        return matches[state_index] if state_index < len(matches) else None
 
     readline.set_completer(completer)
     readline.set_completer_delims(" \t\n")
@@ -627,10 +792,15 @@ HELP = """commands:
   /sessions        list recent sessions with their first prompt
   /resume <name>   switch to an existing session
   /session         print the current session id
+  /model [id]      show or switch the model (/model refresh re-reads the gateway)
+  /thinking [lvl]  show or switch the reasoning effort (/thinking next cycles)
   /themes          list themes
   /theme <name>    switch theme and remember it
+  /copy            copy the last answer to the clipboard (OSC 52)
+  /dump            write the transcript to ~/.local/state/uachat/transcripts
   /exit, /quit     leave
-anything else is sent to the agent as a prompt."""
+anything else is sent to the agent as a prompt.
+Ctrl-C interrupts the current turn; Ctrl-C twice at the prompt leaves."""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -723,7 +893,7 @@ def main(argv: list[str] | None = None) -> int:
         endpoint = apply_environment(session_id)
         model = args.model or os.environ.get("UNREAL_HARNESS_LLM_MODEL") or "(provider default)"
         thinking = args.thinking or os.environ.get("UACHAT_THINKING") or ""
-        model_line = f"{model} · thinking {thinking}" if thinking else str(model)
+        model_line = f"{model} · {thinking_glyph(thinking)} {thinking}" if thinking else str(model)
 
         if args.prompt:
             kick_off_update_check(config)
@@ -735,14 +905,38 @@ def main(argv: list[str] | None = None) -> int:
         flush_core_note(theme)
         kick_off_update_check(config)
         setup_readline(theme)
+
+        state = {"model": args.model or os.environ.get("UNREAL_HARNESS_LLM_MODEL", ""), "thinking": thinking}
+        transcript: list[tuple[str, str]] = []
+        reader = None
+        if editor_module is not None and getattr(editor_module, "AVAILABLE", False):
+            try:
+                reader = editor_module.Editor(
+                    history_path=HISTORY_PATH,
+                    suggestions=lambda text: command_suggestions(text, theme),
+                    paint=lambda text, key: theme.paint(text, key),
+                )
+            except Exception:
+                reader = None
+        last_interrupt = 0.0
         while True:
             try:
-                line = input(theme.paint("› ", "user", BOLD))
+                if reader is not None:
+                    line = reader.read_line(theme.paint("› ", "user", BOLD))
+                else:
+                    line = input(theme.paint("› ", "user", BOLD))
+                last_interrupt = 0.0
             except EOFError:
                 print()
                 break
             except KeyboardInterrupt:
                 print()
+                now = time.monotonic()
+                if now - last_interrupt <= DOUBLE_INTERRUPT_WINDOW:
+                    print(theme.paint("  bye", "dim"))
+                    break
+                last_interrupt = now
+                print(theme.paint("  Ctrl-C again to exit", "warn"))
                 continue
             prompt = line.strip()
             if not prompt:
@@ -757,6 +951,65 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             if prompt == "/themes":
                 print(", ".join(f"*{name}*" if name == theme.name else name for name in theme.names()))
+                continue
+            if prompt.startswith("/model"):
+                _, _, value = prompt.partition(" ")
+                value = value.strip()
+                if not value:
+                    ids = available_models()
+                    print(f"current model: {state['model'] or '(provider default)'}")
+                    for index, item in enumerate(ids[:16], start=1):
+                        mark = "*" if item == state["model"] else " "
+                        print(f" {mark} {item}")
+                    if len(ids) > 16:
+                        print(theme.paint(f"   … {len(ids) - 16} more (/model <substring>)", "dim"))
+                    print(theme.paint("   /model <id> · /model refresh", "dim"))
+                elif value == "refresh":
+                    print(f"models: {len(available_models(refresh=True))}")
+                else:
+                    known = available_models()
+                    state["model"] = value
+                    os.environ["UNREAL_HARNESS_LLM_MODEL"] = value
+                    save_config_value("UNREAL_HARNESS_LLM_MODEL", value)
+                    print(f"model: {value}" + ("" if not known or value in known else theme.paint(" (not in the gateway list)", "warn")))
+                continue
+            if prompt.startswith("/thinking"):
+                _, _, value = prompt.partition(" ")
+                value = value.strip()
+                levels = effort_levels()
+                if not value:
+                    print(f"current thinking: {state['thinking'] or '(provider default)'}")
+                    print("   " + ", ".join(f"*{level}*" if level == state["thinking"] else level for level in levels))
+                    print(theme.paint("   /thinking <level> · /thinking next", "dim"))
+                elif value == "next":
+                    current = state["thinking"] if state["thinking"] in levels else levels[-1]
+                    value = levels[(levels.index(current) + 1) % len(levels)]
+                    state["thinking"] = value
+                    os.environ["UACHAT_THINKING"] = value
+                    save_config_value("UACHAT_THINKING", value)
+                    print(f"thinking: {thinking_glyph(value)} {value}")
+                elif value not in levels:
+                    print(theme.paint(f"unknown level {value}; use one of {', '.join(levels)}", "error"))
+                else:
+                    state["thinking"] = value
+                    os.environ["UACHAT_THINKING"] = value
+                    save_config_value("UACHAT_THINKING", value)
+                    print(f"thinking: {thinking_glyph(value)} {value}")
+                continue
+            if prompt == "/copy" or prompt.startswith("/copy "):
+                text = transcript[-1][1] if transcript else ""
+                if not text:
+                    print(theme.paint("nothing to copy yet", "warn"))
+                else:
+                    copy_to_clipboard(text)
+                    print(f"copied {len(text)} characters")
+                continue
+            if prompt == "/dump" or prompt.startswith("/dump "):
+                if not transcript:
+                    print(theme.paint("nothing to dump yet", "warn"))
+                else:
+                    path = dump_transcript(session_id, transcript)
+                    print(f"transcript: {path}")
                 continue
             if prompt.startswith("/theme"):
                 _, _, name = prompt.partition(" ")
@@ -807,7 +1060,18 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             renderer = Renderer(theme)
             spinner = Spinner(theme, spinner_on)
-            run_turn(args.binary, workspace, build_request(prompt), renderer, spinner)
+            code = run_turn(args.binary, workspace, build_request(prompt), renderer, spinner)
+            transcript.append(("you", prompt))
+            if renderer.last_assistant.strip():
+                transcript.append(("agent", renderer.last_assistant.strip()))
+            if code == 0:
+                notify("uachat", "turn complete")
+            elif code == 130:
+                # A second Ctrl-C right after an interrupt leaves the client.
+                last_interrupt = time.monotonic()
+                notify("uachat", "turn interrupted")
+            else:
+                notify("uachat", f"turn failed (exit {code})")
         return 0
     finally:
         if bridge is not None:
@@ -815,4 +1079,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        # Ctrl-C landed outside the prompt loop (e.g. between turns): leave cleanly.
+        print("\n  bye")
+        raise SystemExit(130)
