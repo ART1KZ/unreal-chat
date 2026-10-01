@@ -45,10 +45,10 @@ check "Enter accepts the highlighted hint in autocomplete" "$out" "/thinking"
 out=$(run "0.5:/provider\n" "0.5:\x1b[B" "0.5:\n" "0.4:/exit\n")
 check "interactive provider picker moves with Down arrow and selects" "$out" "provider: openai-codex"
 
-# 4. Interactive /model picker with live typing filter in openai-codex
-out=$(run "0.5:/model\n" "0.5:sol" "0.5:\n" "0.4:/exit\n")
+# 4. Interactive /model picker with live typing filter in openai-codex, followed by chained thinking picker
+out=$(run "0.5:/model\n" "0.5:sol" "0.5:\n" "0.5:\n" "0.4:/exit\n")
 check "interactive model picker filters by typing and selects" "$out" "model: gpt-5.6-sol"
-
+check "chained thinking picker confirms effort" "$out" "thinking:"
 # 5. Inline model completion after space (/model gpt + Tab) in openai-codex
 out=$(run "0.5:/model gpt\t" "0.5:\x1b" "0.4:/exit\n")
 check "tab completes a model argument inline" "$out" "/model gpt-"

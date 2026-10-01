@@ -1178,6 +1178,20 @@ def main(argv: list[str] | None = None) -> int:
                 save_config_value("UNREAL_HARNESS_LLM_MODEL", value)
                 suffix = "" if not known or value in known else theme.paint(" (not in the provider list)", "warn")
                 print(f"model: {value}{suffix}")
+                if editor_module is not None and getattr(editor_module, "AVAILABLE", False):
+                    t_items = [(lvl, f"effort {thinking_glyph(lvl)}") for lvl in effort_levels()]
+                    chosen_thinking = editor_module.pick(
+                        t_items,
+                        title=f"Select reasoning effort for {value}",
+                        current=state["thinking"],
+                        theme_paint=theme.paint,
+                        filterable=False,
+                    )
+                    if chosen_thinking:
+                        state["thinking"] = chosen_thinking
+                        os.environ["UACHAT_THINKING"] = chosen_thinking
+                        save_config_value("UACHAT_THINKING", chosen_thinking)
+                        print(f"thinking: {thinking_glyph(chosen_thinking)} {chosen_thinking}")
                 continue
             if prompt.startswith("/thinking"):
                 _, _, value = prompt.partition(" ")
