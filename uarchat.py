@@ -288,6 +288,8 @@ class Bridge:
         environment = os.environ.copy()
         # Keep the upstream key out of `ps`: the child reads it from the environment.
         environment["UACHAT_BRIDGE_KEY"] = self.key
+        # Let the bridge notice when this client dies instead of lingering.
+        environment["UACHAT_PARENT_PID"] = str(os.getpid())
         self.process = subprocess.Popen(
             [
                 sys.executable,

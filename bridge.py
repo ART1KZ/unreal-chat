@@ -12,6 +12,8 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -90,6 +92,16 @@ def make_handler(bridge: Bridge):
     return Handler
 
 
+def _watch_parent(parent_pid: int) -> None:
+    """Exit once the client that spawned us is gone (systemd may adopt orphans)."""
+    if parent_pid <= 1:
+        return
+    while True:
+        time.sleep(2)
+        if not os.path.exists(f"/proc/{parent_pid}"):
+            os._exit(0)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Responses API bridge to OpenCode Go")
     parser.add_argument("--listen", default="127.0.0.1:8791", help="host:port to listen on (port 0 picks a free port)")
@@ -97,12 +109,14 @@ def main() -> int:
     parser.add_argument("--key", default=os.environ.get("UACHAT_BRIDGE_KEY", ""), help="upstream API key (defaults to $UACHAT_BRIDGE_KEY; prefer the environment so it stays out of `ps`)")
     parser.add_argument("--session", required=True, help="value for x-opencode-session (stable per conversation)")
     parser.add_argument("--user-agent", default="uarchat/0.1", help="User-Agent sent upstream")
+    parser.add_argument("--parent-pid", type=int, default=int(os.environ.get("UACHAT_PARENT_PID", "0")), help="exit when this pid disappears (defaults to $UACHAT_PARENT_PID)")
     args = parser.parse_args()
     if not args.key:
         parser.error("--key or UACHAT_BRIDGE_KEY is required")
 
     host, _, port_text = args.listen.rpartition(":")
     server = ThreadingHTTPServer((host or "127.0.0.1", int(port_text)), make_handler(Bridge(args.target, args.key, args.session, args.user_agent)))
+    threading.Thread(target=_watch_parent, args=(args.parent_pid,), daemon=True).start()
     print(f"listening on {server.server_address[0]}:{server.server_address[1]}", flush=True)
     try:
         server.serve_forever()
