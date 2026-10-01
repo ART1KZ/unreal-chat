@@ -45,6 +45,9 @@ check "Enter accepts a highlighted model argument" "$out" "model: deepseek-"
 out=$(run "0.6:/provider\n" "0.4:/exit\n")
 check "provider picker lists the providers" "$out" "openrouter"
 
+out=$(run "0.7:/model " "0.6:\x1b[B\x1b[B" "0.6:\n" "0.6:\n" "0.4:/exit\n")
+check "arrow keys move inside the model menu" "$out" "model: deepseek-v4-flash-vision-exp"
+
 out=$(run "0.6:/model \n" "0.4:/exit\n")
 check "argument menu lists gateway models" "$out" "deepseek-v4.1-flash"
 
