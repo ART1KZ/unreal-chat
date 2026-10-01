@@ -21,6 +21,7 @@ import textwrap
 import threading
 import time
 import uuid
+from typing import Callable
 
 try:  # POSIX only; absent on Windows
     import readline
@@ -608,7 +609,11 @@ class Spinner:
             while not self.stop_event.is_set():
                 frame = self.FRAMES[index % len(self.FRAMES)]
                 elapsed = time.monotonic() - self.started_at
-                line = self.theme.paint(f"  {frame} ", "accent") + self.theme.paint(f"working {elapsed:5.1f}s", "dim")
+                line = (
+                    self.theme.paint(f"  {frame} ", "accent")
+                    + self.theme.paint(f"working {elapsed:4.1f}s", "dim")
+                    + self.theme.paint(" · Esc to interrupt", "dim")
+                )
                 sys.stdout.write("\r\033[K" + line)
                 sys.stdout.flush()
                 index += 1
@@ -771,6 +776,79 @@ def terminate(proc: subprocess.Popen) -> None:
         except (ProcessLookupError, PermissionError):
             pass
 
+class InterruptWatcher:
+    """Listens on sys.stdin in cbreak mode during a turn to intercept Esc / Ctrl-C."""
+
+    def __init__(self, on_interrupt: Callable[[], None]) -> None:
+        self.on_interrupt = on_interrupt
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._old_term = None
+        self._fd: int | None = None
+        if os.name == "posix" and sys.stdin.isatty():
+            try:
+                import termios
+                self._fd = sys.stdin.fileno()
+                self._old_term = termios.tcgetattr(self._fd)
+            except Exception:
+                self._fd = None
+
+    def start(self) -> None:
+        if self._fd is None:
+            return
+        try:
+            import termios, tty
+            tty.setcbreak(self._fd, termios.TCSADRAIN)
+        except Exception:
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def _loop(self) -> None:
+        import select
+        while not self._stop.is_set():
+            try:
+                assert self._fd is not None
+                r, _, _ = select.select([self._fd], [], [], 0.05)
+            except (OSError, ValueError):
+                break
+            if r:
+                try:
+                    ch = os.read(self._fd, 1)
+                except OSError:
+                    break
+                if not ch:
+                    break
+                if ch == b"\x03":
+                    self.on_interrupt()
+                    break
+                if ch == b"\x1b":
+                    # Check if an escape sequence follows (e.g. arrow keys)
+                    r_esc, _, _ = select.select([self._fd], [], [], 0.04)
+                    if r_esc:
+                        try:
+                            seq = os.read(self._fd, 16)
+                        except OSError:
+                            break
+                        if seq and seq[0:1] in (b"[", b"O"):
+                            continue  # arrow or function key, ignore
+                    # Lone Esc keypress!
+                    self.on_interrupt()
+                    break
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=0.4)
+            self._thread = None
+        if self._old_term is not None and self._fd is not None:
+            try:
+                import termios
+                termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old_term)
+            except Exception:
+                pass
+
 
 def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spinner: Spinner) -> int:
     try:
@@ -787,6 +865,15 @@ def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spi
         renderer.error(f"runner binary not found: {binary}")
         return 127
     renderer.begin_turn()
+    interrupted_by_esc = False
+
+    def on_esc():
+        nonlocal interrupted_by_esc
+        interrupted_by_esc = True
+        terminate(proc)
+
+    watcher = InterruptWatcher(on_esc)
+    watcher.start()
     try:
         try:
             assert proc.stdin is not None
@@ -813,6 +900,15 @@ def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spi
         print()
         print(renderer.theme.paint("  [interrupted]", "warn"))
         return 130
+    finally:
+        watcher.stop()
+
+    if interrupted_by_esc:
+        spinner.stop()
+        print()
+        print(renderer.theme.paint("  [interrupted by Esc]", "warn"))
+        return 130
+
     renderer.end_turn(code)
     return code
 

@@ -44,10 +44,10 @@ Keys:
 | `Enter` | accept the highlighted hint when it differs from what you typed; otherwise send |
 | `→` | accept at end of line, otherwise move the cursor |
 | `↑`/`↓` | move inside the hint menu, else walk history |
-| `Esc` | close the hint menu |
+| `Esc` | close the hint menu / cancel interactive picker |
+| `Esc` during a turn | interrupt the agent immediately (session survives) |
 | `Ctrl-C` | clear the draft; twice within 4 s leaves the client |
-| `Ctrl-C` during a turn | interrupt the turn (the session survives) |
-| `Ctrl-D` | leave |
+| `Ctrl-C` during a turn | interrupt the turn (session survives) |
 | `Ctrl-A/E/U/K/W/L` | line editing (home/end/kill/word-erase/clear) |
 
 ## Interface
@@ -55,7 +55,7 @@ Keys:
 - Live hint menu above the input while typing `/…`: commands, then their
   arguments (models from the gateway, thinking levels, themes, sessions), with
   the highlighted entry shown inline; `Tab` accepts.
-- Spinner with elapsed time while the model works; cleared before each event.
+- Spinner with elapsed time and notice while the model works (`⠋ working 3.4s · Esc to interrupt`); cleared before each event.
 - Tool calls as `⏵ Bash <command>`, results as `⎿ <line>` (long output truncated
   with the full file path), assistant text under a `⏺ agent` marker with a
   wrapping gutter.
