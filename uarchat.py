@@ -115,7 +115,7 @@ THEMES: dict[str, dict[str, str]] = {
 
 COMMANDS = (
     "/help", "/new", "/sessions", "/resume", "/session",
-    "/provider", "/model", "/thinking", "/theme", "/themes", "/copy", "/dump", "/repair", "/exit", "/quit",
+    "/provider", "/model", "/thinking", "/theme", "/themes", "/rtk", "/copy", "/dump", "/repair", "/exit", "/quit",
 )
 COMMAND_HELP = {
     "/help": "this text",
@@ -123,6 +123,7 @@ COMMAND_HELP = {
     "/sessions": "list recent sessions",
     "/resume": "switch to an existing session",
     "/session": "print the current session id",
+    "/rtk": "show RTK token-saving status and stats",
     "/provider": "pick the provider (opencode-go, openrouter, openai, ...)",
     "/model": "pick the model",
     "/thinking": "pick the reasoning effort",
@@ -273,6 +274,75 @@ def session_preview(path: str) -> str:
     except OSError:
         pass
     return ""
+
+
+def replay_session(session_id: str, theme: Theme, max_turns: int = 5) -> None:
+    """Display past turns from a resumed session so the user sees the history."""
+    path = session_path(session_id)
+    if not os.path.isfile(path):
+        return
+    turns: list[dict] = []
+    current_turn: dict = {"user": None, "tools": [], "agent": None}
+
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                item = (rec.get("data") or {}).get("Item") if rec.get("type") == "item" else rec
+                if not item:
+                    continue
+                kind = item.get("Kind")
+                data = item.get("Data") or {}
+
+                if kind == "input" and data.get("Kind") == "external":
+                    if current_turn["user"] is not None or current_turn["agent"] is not None:
+                        turns.append(current_turn)
+                        current_turn = {"user": None, "tools": [], "agent": None}
+                    p = data.get("Payload")
+                    current_turn["user"] = p.get("Text") if isinstance(p, dict) else str(p)
+                elif kind == "model_response":
+                    resp = data.get("Response") or {}
+                    for out in resp.get("Output") or []:
+                        otype = out.get("Type")
+                        odata = out.get("Data") or {}
+                        if otype == "message":
+                            current_turn["agent"] = odata.get("Text", "")
+                        elif otype == "tool_call":
+                            current_turn["tools"].append(odata.get("Name", "tool"))
+        if current_turn["user"] is not None or current_turn["agent"] is not None:
+            turns.append(current_turn)
+    except OSError:
+        return
+
+    if not turns:
+        return
+
+    total = len(turns)
+    shown = turns[-max_turns:]
+    omitted = total - len(shown)
+
+    print()
+    if omitted > 0:
+        print(theme.paint(f"  ─── ({omitted} earlier turns omitted) ───", "dim"))
+    for t in shown:
+        if t["user"]:
+            print("  " + theme.paint("› ", "user", BOLD) + t["user"])
+        if t["tools"]:
+            tool_str = ", ".join(t["tools"])
+            print("    " + theme.paint(f"⏵ {tool_str}", "tool"))
+        if t["agent"]:
+            print()
+            print("  " + theme.paint("⏺ ", "agent") + theme.paint("agent", "label"))
+            lines = t["agent"].strip().splitlines()
+            for line in lines[:8]:
+                print("  " + theme.paint("│ ", "dim") + line)
+            if len(lines) > 8:
+                print("  " + theme.paint(f"  │ … ({len(lines) - 8} more lines)", "dim"))
+        print()
+    print(theme.paint(f"  ─── resumed session {session_id} ({total} turns loaded) ───\n", "dim"))
 
 
 def valid_session_name(name: str) -> bool:
@@ -678,8 +748,10 @@ class Spinner:
 
 
 class Renderer:
-    def __init__(self, theme: Theme) -> None:
+    def __init__(self, theme: Theme, model: str = "", thinking: str = "") -> None:
         self.theme = theme
+        self.model = model
+        self.thinking = thinking
         self.width = shutil.get_terminal_size((100, 24)).columns
         self.input_tokens = 0
         self.output_tokens = 0
@@ -730,8 +802,13 @@ class Renderer:
         if not text:
             return
         self.last_assistant = text
+        model_tag = self.model or "agent"
+        if self.thinking:
+            header = f"{model_tag} ({thinking_glyph(self.thinking)} {self.thinking})"
+        else:
+            header = model_tag
         print()
-        print("  " + self.theme.paint("⏺ ", "agent") + self.theme.paint("agent", "label"))
+        print("  " + self.theme.paint("⏺ ", "agent") + self.theme.paint(header, "label"))
         gutter = self.theme.paint("  │ ", "dim")
         for raw in text.split("\n"):
             if not raw.strip():
@@ -917,6 +994,10 @@ class InterruptWatcher:
 
 
 def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spinner: Spinner) -> int:
+    env = os.environ.copy()
+    rtk_shell = "/usr/local/bin/rtk-shell"
+    if (os.environ.get("UACHAT_RTK") or "on").lower() not in ("off", "0", "false", "no") and os.path.isfile(rtk_shell):
+        env["SHELL"] = rtk_shell
     try:
         proc = subprocess.Popen(
             [binary, "-workspace", workspace],
@@ -925,6 +1006,7 @@ def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spi
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=env,
             start_new_session=True,
         )
     except FileNotFoundError:
@@ -1072,6 +1154,7 @@ HELP = """commands:
   /theme <name>    switch theme and remember it
   /copy            copy the last answer to the clipboard (OSC 52)
   /dump            write the transcript to ~/.local/state/uachat/transcripts
+  /rtk             show RTK token-saving status and stats
   /repair [name]   copy the session without duplicate tool outputs, then /resume <name>-rep
   /exit, /quit     leave
 anything else is sent to the agent as a prompt.
@@ -1203,12 +1286,14 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.prompt:
             kick_off_update_check(config)
-            renderer = Renderer(theme)
+            renderer = Renderer(theme, model=model, thinking=thinking)
             spinner = Spinner(theme, spinner_on)
             return run_turn(args.binary, workspace, build_request(args.prompt), renderer, spinner)
 
         print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
         flush_core_note(theme)
+        if os.path.isfile(session_path(session_id)):
+            replay_session(session_id, theme)
         kick_off_update_check(config)
         setup_readline(theme)
 
@@ -1431,6 +1516,21 @@ def main(argv: list[str] | None = None) -> int:
                 output = (completed.stdout or completed.stderr or "").strip()
                 print("\n".join("  " + line for line in output.splitlines()))
                 continue
+            if prompt == "/rtk" or prompt.startswith("/rtk "):
+                rtk_shell = "/usr/local/bin/rtk-shell"
+                rtk_bin = shutil.which("rtk") or "/usr/local/bin/rtk"
+                if not os.path.exists(rtk_bin):
+                    print(theme.paint("rtk is not installed", "error"))
+                else:
+                    active = "active (SHELL wrapped)" if os.path.exists(rtk_shell) else "installed (wrapper inactive)"
+                    print(f"rtk: {active} · {rtk_bin}")
+                    res = subprocess.run([rtk_bin, "gain"], capture_output=True, text=True)
+                    if res.stdout.strip():
+                        print("\n".join("  " + l for l in res.stdout.strip().splitlines()))
+                    else:
+                        res2 = subprocess.run([rtk_bin, "--version"], capture_output=True, text=True)
+                        print("  " + (res2.stdout or res2.stderr).strip())
+                continue
             if prompt.startswith("/theme"):
                 _, _, name = prompt.partition(" ")
                 name = name.strip()
@@ -1484,6 +1584,7 @@ def main(argv: list[str] | None = None) -> int:
                     except RuntimeError as error:
                         print(theme.paint(f"error: {error}", "error"))
                     print(f"session: {session_id}")
+                    replay_session(session_id, theme)
                     continue
                 else:
                     for item in items_raw:
@@ -1522,6 +1623,7 @@ def main(argv: list[str] | None = None) -> int:
                 except RuntimeError as error:
                     print(theme.paint(f"error: {error}", "error"))
                 print(f"session: {session_id}")
+                replay_session(session_id, theme)
                 continue
             if prompt.startswith("/new"):
                 _, _, name = prompt.partition(" ")
@@ -1536,7 +1638,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(theme.paint(f"error: {error}", "error"))
                 print(f"new session: {session_id}")
                 continue
-            renderer = Renderer(theme)
+            renderer = Renderer(theme, model=state.get("model", ""), thinking=state.get("thinking", ""))
             spinner = Spinner(theme, spinner_on)
             code = run_turn(args.binary, workspace, build_request(prompt), renderer, spinner)
             transcript.append(("you", prompt))

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# rtk-shell: transparently rewrites commands through RTK before execution
+# Used as SHELL for unreal-agent-runner to compress command outputs (60-90% token savings).
+if [ "$1" = "-c" ] && [ -n "${2:-}" ]; then
+  cmd="$2"
+  if command -v rtk >/dev/null 2>&1; then
+    rewritten=$(rtk rewrite "$cmd" 2>/dev/null || true)
+    if [ -n "$rewritten" ]; then
+      exec /bin/bash -c "$rewritten"
+    fi
+  fi
+  exec /bin/bash -c "$cmd"
+fi
+exec /bin/bash "$@"

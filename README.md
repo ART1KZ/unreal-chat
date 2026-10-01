@@ -34,6 +34,8 @@ In-chat commands (TAB completes commands and their arguments, ↑/↓ walk histo
 | `/theme <name>`, `/themes` | switch theme (persisted to the config file) |
 | `/copy` | copy the last answer to the clipboard (OSC 52; works over WSL/SSH) |
 | `/dump` | write the transcript to `~/.local/state/uachat/transcripts` |
+| `/rtk` | show RTK token-saving status and savings stats (`rtk gain`) |
+| `/repair [name]` | copy a session without duplicate tool outputs, then `/resume <name>-rep` |
 | `/help`, `/exit` | usage, leave |
 
 Keys:
@@ -55,13 +57,12 @@ Keys:
 - Live hint menu above the input while typing `/…`: commands, then their
   arguments (models from the gateway, thinking levels, themes, sessions), with
   the highlighted entry shown inline; `Tab` accepts.
-- Spinner with elapsed time and notice while the model works (`⠋ working 3.4s · Esc to interrupt`); cleared before each event.
-- Tool calls as `⏵ Bash <command>`, results as `⎿ <line>` (long output truncated
-  with the full file path), assistant text under a `⏺ agent` marker with a
-  wrapping gutter.
-- Per-turn footer: `╵ in N · cached N · out N · 1.7s`; the banner shows
-  `model · ◉ max` (thinking glyphs ○ ◔ ◑ ◒ ◕ ◉).
-- Desktop toast on turn completion/failure (OSC 9 + `notify-send`; disable with
+- Spinner with elapsed time, active phase and interrupt hint while the model works (`⠋ thinking (2.4s) · Esc to interrupt`, `⠋ executing Bash (3.1s)`, `⠋ streaming ~38 tok/s · 450 tok`); cleared before each event.
+- Tool calls as `⏵ Bash <command>`, results as `⎿ <line>` (long output truncated with the full file path; noisy `curl`/`wget` progress bars are automatically filtered).
+- Assistant message header shows the exact model name and reasoning effort: `⏺ deepseek-v4.1-flash (◉ max)` or `⏺ gpt-5.6-sol (◉ max)` with a wrapping gutter.
+- Resuming a session (via `-s` or `/resume`) automatically replays the past conversation turns so you see the history immediately.
+- All Bash commands executed by the agent automatically run through `rtk-shell` (Rust Token Killer, v0.50.0), cutting up to 60-90% of token consumption from command outputs (`git status`, `ls`, `grep`, `pytest`, `npm test`, etc.). Check stats with `/rtk`.
+- Per-turn footer: `╵ in N · cached N · out N (~M tok/s) · 1.7s`; the banner shows `model · ◉ max` (thinking glyphs ○ ◔ ◑ ◒ ◕ ◉).
   `UACHAT_NOTIFY=off`).
 - Six 256-colour themes: `midnight`, `nord`, `gruvbox`, `neon`, `paper`, `mono`.
   Colour is on when stdout is a terminal; `--color always|never`,
