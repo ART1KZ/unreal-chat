@@ -12,10 +12,10 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 
 import codex_auth
-from configio import file_lock
+from configio import file_lock, LockBusyError
 from secure_http import urlopen
 from terminal_ui import safe_text, positive_int
 
@@ -29,15 +29,9 @@ def paths():
 
 
 def key_for(payload):
-    tokens = payload.get('tokens',{})
-    access = codex_auth._jwt_claims(tokens.get('access_token'))
-    identity = codex_auth._jwt_claims(tokens.get('id_token'))
-    auth = access.get('https://api.openai.com/auth',{})
-    if not isinstance(auth,dict): auth = {}
-    # Access-token identity exists in legacy CLI imports as well as fresh login.
-    # Prefer it over id_token.sub so adding id_token does not duplicate accounts.
-    subject = auth.get('chatgpt_user_id') or auth.get('user_id') or access.get('sub') or identity.get('sub') or payload.get('email') or tokens.get('account_id')
-    raw = str(tokens.get('account_id'))+'\0'+str(subject)
+    account, user = codex_auth.credential_identity(payload)
+    subject = user or payload.get('email') or account
+    raw = str(account)+'\0'+str(subject)
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
@@ -54,7 +48,9 @@ def _read():
             raise ValueError('Повреждён Codex accounts.json; сохранённые credentials не удалены. Восстанови индекс из резервной копии.')
         return {'version':1,'active':None,'auto_rotate':True,'accounts':{},'sessions':{}}
     data['accounts'] = {k:v for k,v in data['accounts'].items() if re.fullmatch(r'[a-f0-9]{32}',k) and isinstance(v,dict)}
-    if not isinstance(data.get('sessions'),dict): data['sessions'] = {}
+    sessions = data.get('sessions')
+    data['sessions'] = {s:k for s,k in sessions.items() if isinstance(s,str) and isinstance(k,str) and k in data['accounts']} if isinstance(sessions,dict) else {}
+    if not isinstance(data.get('active'),str) or data.get('active') not in data['accounts']: data['active'] = next(iter(data['accounts']),None)
     if not isinstance(data.get('auto_rotate'),bool): data['auto_rotate'] = True
     return data
 
@@ -85,7 +81,7 @@ def register(payload):
     key = key_for(payload)
     path = account_path(key)
     # Lease precedes index lock everywhere, avoiding refresh/selection deadlocks.
-    with file_lock(path+'.lease'), file_lock(paths()[1]):
+    with file_lock(path+'.lease',timeout=5), file_lock(paths()[1]):
         data = _read()
         codex_auth._write_private_json(path,payload)
         data['accounts'][key] = {'email':payload.get('email'),'added_at':time.time()}
@@ -118,7 +114,7 @@ def resolve(selector=None):
 def choose(selector):
     key = resolve(selector)
     import native_auth
-    with file_lock(account_path(key)+'.lease'):
+    with file_lock(account_path(key)+'.lease',timeout=5):
         payload = native_auth.ensure_fresh(account_path(key))
         with file_lock(paths()[1]):
             data = _read()
@@ -137,7 +133,7 @@ def remove(selector=None, all_accounts=False):
         return
     keys = [key for key,_ in rows] if all_accounts else [resolve(selector)]
     for key in keys:
-        with file_lock(account_path(key)+'.lease'), file_lock(paths()[1]):
+        with file_lock(account_path(key)+'.lease',timeout=5), file_lock(paths()[1]):
             data = _read()
             data['accounts'].pop(key,None)
             data['sessions'] = {s:k for s,k in data['sessions'].items() if k != key}
@@ -177,22 +173,27 @@ def fetch_usage(payload):
     return data
 
 
+def cached_usage(item, now=None):
+    cached = item.get('usage')
+    now = time.time() if now is None else now
+    checked = positive_int(item.get('checked_at')) or 0
+    if not isinstance(cached,dict) or not 0 <= now-checked < CACHE_SECONDS:
+        return None
+    for _,group in quota_groups(cached):
+        for field in ('primary_window','secondary_window'):
+            window = group.get(field)
+            reset = positive_int(window.get('reset_at')) if isinstance(window,dict) else None
+            if reset and checked < reset <= now: return None
+    return cached
+
+
 def _usage_locked(key, refresh=False):
     """Caller owns account lease; OAuth refresh and runtime snapshot cannot race."""
     import native_auth
-    data, rows = entries()
+    data, _ = entries()
     item = data['accounts'].get(key,{})
-    cached = item.get('usage')
-    now = time.time()
-    checked = positive_int(item.get('checked_at')) or 0
-    reset_passed = False
-    if isinstance(cached,dict):
-        for _,group in quota_groups(cached):
-            for field in ('primary_window','secondary_window'):
-                window = group.get(field)
-                reset = positive_int(window.get('reset_at')) if isinstance(window,dict) else None
-                if reset and checked < reset <= now: reset_passed = True
-    if not refresh and isinstance(cached,dict) and now-checked<CACHE_SECONDS and not reset_passed:
+    cached = cached_usage(item)
+    if not refresh and cached is not None:
         return cached
     payload = native_auth.ensure_fresh(account_path(key))
     try:
@@ -205,13 +206,25 @@ def _usage_locked(key, refresh=False):
     with file_lock(paths()[1]):
         data = _read()
         if key in data['accounts']:
-            data['accounts'][key].update(usage=usage,checked_at=time.time())
+            entry = data['accounts'][key]
+            entry.update(usage=usage,checked_at=time.time())
+            error = entry.get('last_error')
+            if isinstance(error,dict) and error.get('kind') == 'quota':
+                blocked = block_until(usage,str(error.get('model') or ''))
+                entry.update(cooldown_until=blocked or 0,force_check=False)
+                if not blocked: entry['last_error'] = None
+            elif isinstance(error,dict) and error.get('kind') == 'refresh':
+                entry['last_error'] = None
             _write(data)
     return usage
 
 
 def usage_for(key, refresh=False):
-    with file_lock(account_path(key)+'.lease'):
+    if not refresh:
+        data, _ = entries()
+        cached = cached_usage(data['accounts'].get(key,{}))
+        if cached is not None: return cached
+    with file_lock(account_path(key)+'.lease',timeout=0):
         return _usage_locked(key,refresh)
 
 
@@ -287,10 +300,10 @@ def _mark(key,**values):
             _write(data)
 
 
-def note_error(key,message):
+def note_error(key,message,model=''):
     # Do not confuse model quota with 403 region/security denial or every 429.
     if re.search(r'usage_limit_reached|insufficient_quota|quota_exceeded|usage limit (?:has been )?reached|quota exceeded',message,re.I):
-        _mark(key,cooldown_until=time.time()+300,force_check=True)
+        _mark(key,cooldown_until=time.time()+300,force_check=True,last_error={'kind':'quota','model':model,'at':time.time()})
         return True
     return False
 
@@ -318,9 +331,15 @@ def turn(session, model='', on_select=None):
     ordered = ([first] if first in data['accounts'] else [])+[k for k,_ in rows if k != first]
     if not data.get('auto_rotate',True): ordered = ordered[:1]
     rejected = []
+    busy = []
     for key in ordered:
         path = account_path(key)
-        with file_lock(path+'.lease'):
+        with ExitStack() as lease:
+            try:
+                lease.enter_context(file_lock(path+'.lease',timeout=0))
+            except LockBusyError:
+                busy.append(key)
+                continue
             # Recheck membership after acquiring a potentially contended lease.
             current, _ = entries()
             item = current['accounts'].get(key)
@@ -328,7 +347,10 @@ def turn(session, model='', on_select=None):
             import native_auth
             try:
                 payload = native_auth.ensure_fresh(path)
-            except (OSError,ValueError):
+            except (OSError,ValueError) as error:
+                code = error.code if isinstance(error,urllib.error.HTTPError) else None
+                _mark(key,last_error={'kind':'refresh','http_status':code,'at':time.time()})
+                if isinstance(error,urllib.error.HTTPError): error.close()
                 rejected.append(key)
                 continue
             cached = item.get('usage') if isinstance(item.get('usage'),dict) else {}
@@ -336,7 +358,7 @@ def turn(session, model='', on_select=None):
             try:
                 usage = _usage_locked(key,refresh=bool(item.get('force_check')))
                 blocked = block_until(usage,model)
-                _mark(key,cooldown_until=blocked or 0,force_check=False)
+                _mark(key,cooldown_until=blocked or 0,force_check=False,last_error=None)
             except (OSError,ValueError) as error:
                 usage_error = f'HTTP {error.code}' if isinstance(error,urllib.error.HTTPError) else 'usage unavailable'
                 if isinstance(error,urllib.error.HTTPError): error.close()
@@ -354,7 +376,9 @@ def turn(session, model='', on_select=None):
                 while len(current['sessions'])>256: current['sessions'].pop(next(iter(current['sessions'])))
                 _write(current)
             payload = native_auth.ensure_fresh(path)
-            codex_auth._write_private_json(paths()[0],payload)
+            with file_lock(paths()[1]):
+                if _read().get('active') == key:
+                    codex_auth._write_private_json(paths()[0],payload)
             info = {'key':key,'email':item.get('email') or key[:8],'usage':usage,'usage_error':usage_error,
                     'rotated': bool(first and first != key)}
             directory = os.path.join(os.path.dirname(paths()[0]),'runtime')
@@ -380,9 +404,22 @@ def turn(session, model='', on_select=None):
                 try: os.unlink(snapshot)
                 except FileNotFoundError: pass
             return
+    if busy:
+        raise LockBusyError("Аккаунт занят другим ходом. Выбери другой /accounts use или дождись завершения. Ход не запущен.")
     if rejected:
         raise ValueError('Сохранённые аккаунты недоступны/исчерпали лимиты. /usage --all покажет квоты; /login добавляет аккаунт. Ход не запущен.')
     raise ValueError('Нет аккаунтов Codex; /login openai-codex')
+
+
+def cached_status(session, model=''):
+    """Public cache-only session status; no migration, refresh, locks or HTTP."""
+    data = _read()
+    key = data['sessions'].get(session) or data.get('active')
+    item = data['accounts'].get(key,{})
+    usage = item.get('usage') if isinstance(item.get('usage'),dict) else {}
+    error = item.get('last_error')
+    limited = isinstance(error,dict) and error.get('kind') == 'quota' and error.get('model') in ('',model)
+    return {'key':key,'usage':usage,'limited':limited,'checked_at':item.get('checked_at')}
 
 
 def show_accounts(ui):
@@ -393,6 +430,9 @@ def show_accounts(ui):
         mark = '*' if key == data.get('active') else ' '
         ui.line(f'{mark} {key[:8]} · {item.get("email") or "account"}', 'accent')
         if item.get('usage'): ui.line('    '+quota_label(item['usage']))
+        error = item.get('last_error')
+        if isinstance(error,dict) and error.get('kind') == 'refresh':
+            ui.line('    последний refresh не удался'+(' · HTTP '+str(error['http_status']) if error.get('http_status') else '')+' · повторный /login может помочь','warn')
     ui.line('Авторотация: '+('включена' if data.get('auto_rotate',True) else 'выключена'))
 
 
@@ -427,7 +467,9 @@ def show_usage(ui, all_accounts=False, refresh=True, selector=None):
             if isinstance(credits,dict):
                 ui.line('Кредиты: '+('unlimited' if credits.get('unlimited') else str(credits.get('balance') if credits.get('balance') is not None else '?')))
         except (OSError,ValueError) as error:
-            if isinstance(error,urllib.error.HTTPError):
+            if isinstance(error,LockBusyError):
+                ui.line('Аккаунт занят активным ходом; используй /usage --cached или проверь после завершения.','warn')
+            elif isinstance(error,urllib.error.HTTPError):
                 ui.line(f'Квоты недоступны: HTTP {error.code}. Это не означает 100% usage.','warn')
                 error.close()
             else: ui.line('Не удалось получить квоты. Сеть/авторизация/формат ответа.','warn')

@@ -34,7 +34,7 @@ repo directory).
 | `gh` CLI | **not installed in WSL** — use `cmd.exe /c gh …` or `powershell.exe -NoProfile -Command gh …` (authenticated as ART1KZ) |
 
 Environment: Windows 10 x64 host, WSL2 Ubuntu, Python 3.14.4. Client version
-string: `uachat 0.5` (`VERSION` in `uarchat.py`).
+string: `uachat 0.5.1` (`VERSION` in `uarchat.py`).
 
 ## 3. Architecture / data flow
 
@@ -282,3 +282,29 @@ wrapped as `{"type":"item","data":{"Item":{…}}}`. `Item.Kind`:
   verified by an authorized user. Don't overclaim those.
 - `test_auth_pool.py` adds auth/usage/rotation/no-replay isolation coverage.
   `bash test.sh` now runs 58 tests plus secret scan; tty-test remains 11 checks.
+
+
+## 14. 0.5.1 auth concurrency / diagnostics
+
+- configio.file_lock now supports optional timeout and LockBusyError. Account
+  turns try leases nonblocking, rotate to idle siblings; mutations wait <=5s.
+  Recent quota cache is readable without a turn lease. No busy-account hang.
+- execute_turn owns a per-session `.client.lock` across preparation and runner;
+  all providers share this guard. Direct upstream runner invocations do not.
+- native_auth.build_payload validates without writes; native login registers the
+  result directly. Failure does not overwrite canonical active credentials.
+  Account/user refresh mismatch and invalid token types/API keys rejected before
+  writing. Identity extraction shared with codex_auth/pool.
+- Preflight errors/Ctrl-C restore editable prompt only if renderer.was_started
+  is false; never silently replay completed/started tools.
+- Footer watches index inode/mtime/size and session/model signature; reads cache
+  only, no migration/locks/HTTP in render callback. Typed quota flags scoped by
+  model, cleared on authoritative fresh availability. Refresh failure metadata
+  contains safe status/class only, never exception bodies/token values.
+- diagnostics.py exposes doctor/auth doctor,/doctor: readonly local checks. No
+  browser/refresh/HTTP, no secret/proxy values. Availability is not auth proof.
+- test_auth_hardening.py: real separate-process locks, guard/no-launch, failed
+  registration preserves active file, refresh identity/type rejection, PTY
+  draft restoration/footer update, diagnostic read-only invariants. Full suite
+  72 tests plus 11 tty checks. User's actual credentials/config were not mutated
+  by diagnostic execution.

@@ -55,14 +55,20 @@ def _lock(path: str):
         yield
 
 
-def _save(response: dict, path: str, previous: dict | None = None) -> None:
+def valid_account_id(value):
+    return isinstance(value,str) and bool(value) and all(33 <= ord(c) <= 126 for c in value)
+
+
+def build_payload(response: dict, previous: dict | None = None) -> dict:
     access = response.get('access_token')
     if not isinstance(access, str) or not access or access.startswith('sk-'):
         raise ValueError('OAuth response has no usable subscription access token')
-    if previous is None and not isinstance(response.get("refresh_token"), str):
+    if previous is None and (not isinstance(response.get("refresh_token"), str) or not response["refresh_token"]):
         raise ValueError("OAuth response lacks a refresh token")
     tokens = dict(previous or {})
     for name in ('access_token', 'refresh_token', 'id_token'):
+        if response.get(name) is not None and not isinstance(response.get(name),str):
+            raise ValueError('OAuth response has an invalid token field')
         if response.get(name):
             tokens[name] = response[name]
     claims = codex_auth._jwt_claims(tokens.get('access_token'))
@@ -70,16 +76,25 @@ def _save(response: dict, path: str, previous: dict | None = None) -> None:
     tokens['account_id'] = (codex_auth._claim_account_id(claims)
                             or codex_auth._claim_account_id(id_claims)
                             or tokens.get('account_id'))
-    if not tokens.get('access_token') or not tokens.get('account_id'):
+    if not valid_account_id(tokens.get('account_id')):
         raise ValueError('OAuth response lacks access token or ChatGPT account id')
     expiry = codex_auth._expires_from_token(tokens['access_token'])
     if expiry is None and positive_int(response.get('expires_in')):
         expiry = int((time.time() + positive_int(response['expires_in'])) * 1000)
     if not expiry or expiry <= time.time()*1000:
         raise ValueError('OAuth response contains an expired token or no expiry')
-    codex_auth._write_private_json(path, {'auth_mode': 'chatgpt', 'tokens': tokens,
-        'expires_ms': expiry, 'email': codex_auth._claim_email(claims)
-        or codex_auth._claim_email(id_claims)})
+    payload = {'auth_mode': 'chatgpt', 'tokens': tokens, 'expires_ms': expiry,
+               'email': codex_auth._claim_email(claims) or codex_auth._claim_email(id_claims)}
+    if previous:
+        old_account, old_user = codex_auth.credential_identity({'tokens':previous})
+        new_account, new_user = codex_auth.credential_identity(payload)
+        if old_account and old_account != new_account or old_user and new_user and old_user != new_user:
+            raise ValueError('refresh returned credentials for a different account; existing credentials unchanged')
+    return payload
+
+
+def _save(response: dict, path: str, previous: dict | None = None) -> None:
+    codex_auth._write_private_json(path, build_payload(response, previous))
     codex_auth._ACCOUNTS = None
 
 
@@ -90,7 +105,7 @@ def ensure_fresh(path: str, force: bool = False) -> dict:
         if not isinstance(payload, dict) or not isinstance(payload.get('tokens'), dict):
             raise ValueError('not logged in; run uachat login openai-codex')
         tokens = payload['tokens']
-        if not isinstance(tokens.get('access_token'), str) or not tokens.get('account_id'):
+        if not isinstance(tokens.get('access_token'), str) or not tokens['access_token'] or tokens['access_token'].startswith('sk-') or not valid_account_id(tokens.get('account_id')):
             raise ValueError('invalid auth file; run uachat login openai-codex')
         expiry = positive_int(payload.get('expires_ms')) or codex_auth._expires_from_token(tokens.get('access_token'))
         if force or not expiry or expiry <= (time.time() + 120) * 1000:
@@ -186,7 +201,7 @@ def main(argv=None, theme=None) -> int:
     raw = list(sys.argv[1:] if argv is None else argv)
     if raw[:1] == ['rotation'] and len(raw)>1 and raw[1] in ('on','off'):
         raw = [raw[0],'--rotate',raw[1]]+raw[2:]
-    parser.add_argument('action', choices=['login', 'logout', 'status', 'usage', 'accounts', 'use', 'rotation'])
+    parser.add_argument('action', choices=['login', 'logout', 'status', 'usage', 'accounts', 'use', 'rotation', 'doctor'])
     parser.add_argument('provider', nargs='?', default='openai-codex', choices=['openai-codex', 'google-antigravity'])
     parser.add_argument('--account', help='saved account email or unambiguous id')
     parser.add_argument('--all', action='store_true', help='all accounts (usage/logout)')
@@ -203,6 +218,9 @@ def main(argv=None, theme=None) -> int:
     path = os.path.expanduser(codex_auth.CODEX_AUTH_PATH)
     ui = AuthUI(theme=theme, color='never' if args.no_color else args.color, print_url=args.print_url, theme_name=args.theme)
     try:
+        if args.action == 'doctor':
+            import diagnostics
+            return diagnostics.report(args.provider,ui)
         if args.provider == 'google-antigravity':
             if args.action not in ('login','logout','status'):
                 raise ValueError('usage/rotation аккаунтов Google пока не реализованы; эти команды поддерживают Codex')
@@ -221,13 +239,10 @@ def main(argv=None, theme=None) -> int:
                     raise ValueError('no usable credentials to import')
                 a = live[0]
                 response = {'access_token': a['access'], 'refresh_token': a['refresh']}
-                with _lock(path):
-                    _save(response, path, {'account_id': a['account_id']})
+                payload = build_payload(response, {'account_id': a['account_id']})
             else:
                 response = device_login(ui) if args.headless else browser_login(ui)
-                with _lock(path):
-                    _save(response, path)
-            payload = codex_auth._read_json(path)
+                payload = build_payload(response)
             ui.line('Авторизация получена · сохраняю аккаунт…')
             key = codex_pool.register(payload)
             ui.line('Готово · '+str(payload.get('email') or key[:8])+' · аккаунт сохранён.', 'ok')

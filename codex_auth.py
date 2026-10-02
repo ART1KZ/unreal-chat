@@ -44,6 +44,18 @@ _TABLE_ALIGN = ("<", "<", ">", "<", ">")
 _ACCOUNTS: list[dict] | None = None
 
 
+def credential_identity(payload):
+    """Account and known user identity, never raw token material."""
+    tokens = payload.get("tokens", {})
+    if not isinstance(tokens, dict): return None, None
+    access = _jwt_claims(tokens.get("access_token"))
+    identity = _jwt_claims(tokens.get("id_token"))
+    auth = access.get(_JWT_AUTH_CLAIM, {})
+    if not isinstance(auth, dict): auth = {}
+    user = auth.get("chatgpt_user_id") or auth.get("user_id") or access.get("sub") or identity.get("sub")
+    return tokens.get("account_id"), user if isinstance(user,str) and user else None
+
+
 def accounts() -> list[dict]:
     """The native uachat Codex account, if logged in.
 

@@ -28,7 +28,8 @@ import time
 import uuid
 from typing import Callable
 from terminal_ui import safe_text, terminal_size, SessionMetrics, TerminalFooter, item_record, count, positive_int, tokens_label, normalize_event, wrap_text
-from configio import save_value
+from configio import save_value, file_lock, LockBusyError
+from contextlib import ExitStack
 
 try:  # POSIX only; absent on Windows
     import readline
@@ -61,7 +62,7 @@ def request_shutdown(signum, frame):
     raise ShutdownRequested(signum)
 
 
-VERSION = "0.5"
+VERSION = "0.5.1"
 
 CONFIG_PATH = os.path.expanduser("~/.config/uachat/env")
 HISTORY_PATH = os.path.expanduser("~/.config/uachat/history")
@@ -129,10 +130,11 @@ THEMES: dict[str, dict[str, str]] = {
 }
 
 COMMANDS = (
-    "/usage", "/accounts", "/rotation", "/status", "/context", "/login", "/logout", "/auth", "/help", "/new", "/sessions", "/resume", "/session",
+    "/doctor", "/usage", "/accounts", "/rotation", "/status", "/context", "/login", "/logout", "/auth", "/help", "/new", "/sessions", "/resume", "/session",
     "/provider", "/model", "/thinking", "/theme", "/themes", "/rtk", "/copy", "/dump", "/repair", "/exit", "/quit",
 )
 COMMAND_HELP = {
+    "/doctor": "read-only auth/browser diagnostics (no token values)",
     "/usage": "Codex subscription quotas and resets",
     "/accounts": "list saved Codex accounts",
     "/rotation": "automatic account rotation on/off",
@@ -780,6 +782,7 @@ class Renderer:
         self.output_tokens = 0
         self.cached_tokens = 0
         self.started_at = time.monotonic()
+        self.was_started = False
         self.printed_operations: set[str] = set()
         self.seen_responses: set[str] = set()
         self.last_assistant = ""
@@ -787,6 +790,7 @@ class Renderer:
     # --- events
 
     def begin_turn(self) -> None:
+        self.was_started = True
         self.started_at = time.monotonic()
 
     def handle(self, record: dict) -> None:
@@ -1251,6 +1255,7 @@ def status_line(theme, state, metrics, provider, session, context_limit=None):
 
 
 HELP = """commands:
+  /doctor [provider] read-only auth/browser diagnostics; never prints tokens
   /usage [--all] [--cached]  subscription quotas, reset times, credits (Codex)
   /accounts [use EMAIL_OR_ID] saved Codex accounts / switch account
   /rotation on|off automatic rotation between saved Codex accounts
@@ -1312,9 +1317,9 @@ def main(argv: list[str] | None = None) -> int:
             prefix.extend(raw[offset:offset+2]); offset += 2
         else:
             break
-    if offset and offset < len(raw) and raw[offset] in ("login", "logout", "auth", "usage"):
+    if offset and offset < len(raw) and raw[offset] in ("login", "logout", "auth", "usage", "doctor"):
         raw = raw[offset:]+prefix
-    if raw and raw[0] in ("login", "logout", "auth", "usage"):
+    if raw and raw[0] in ("login", "logout", "auth", "usage", "doctor"):
         import native_auth
         action = raw.pop(0)
         if action == "auth":
@@ -1394,7 +1399,8 @@ def main(argv: list[str] | None = None) -> int:
     global STREAM_STATE_PATH
     STREAM_STATE_PATH = os.path.join(STATE_DIR, f"stream-state-{os.getpid()}-{uuid.uuid4().hex[:8]}.json")
     os.environ["UACHAT_STREAM_STATE_PATH"] = STREAM_STATE_PATH
-    footer = TerminalFooter(lambda: status_line(theme, state, metrics, provider, session_id, context_limit), enabled=not args.prompt)
+    auth_status_signature = None
+    footer = TerminalFooter(lambda: live_status_line(), enabled=not args.prompt)
     bridge: Bridge | None = None
 
     def apply_environment(current_session: str) -> str:
@@ -1459,22 +1465,44 @@ def main(argv: list[str] | None = None) -> int:
         if not explicit_base_url and providers_module is not None and providers_module.is_oauth(provider):
             os.environ.update(providers_module.auth_env(provider))
 
-    def sync_auth_status():
+    def sync_auth_status(force=False):
+        nonlocal auth_status_signature
         if provider != "openai-codex":
             return
         import codex_pool
+        try:
+            info = os.stat(codex_pool.paths()[1])
+            file_signature = (info.st_ino,info.st_mtime_ns,info.st_size)
+        except OSError:
+            file_signature = None
+        signature = (file_signature,session_id,state["model"])
+        if not force and signature == auth_status_signature:
+            return
+        auth_status_signature = signature
         state["quota_usage"] = None
         state["quota_error_model"] = None
-        if not os.path.exists(codex_pool.paths()[1]):
+        if file_signature is None:
             return
         try:
-            data = codex_pool._read()  # private atomic cache, no network/migration
-            key = data["sessions"].get(session_id) or data.get("active")
-            state["quota_usage"] = data["accounts"].get(key,{}).get("usage",{})
+            cached = codex_pool.cached_status(session_id,state["model"])
+            state["quota_usage"] = cached["usage"]
+            if cached["limited"]: state["quota_error_model"] = state["model"]
         except (OSError,ValueError):
             pass
 
+    def live_status_line():
+        sync_auth_status()
+        return status_line(theme,state,metrics,provider,session_id,context_limit)
+
     def execute_turn(prompt, renderer, spinner):
+        with ExitStack() as guard:
+            try:
+                guard.enter_context(file_lock(os.path.join(SESSION_DIR,session_id+".client"),timeout=0))
+            except LockBusyError:
+                raise LockBusyError("Эта сессия уже выполняет ход в другом клиенте. Дождись завершения или /new. Запрос не отправлен.") from None
+            return execute_turn_unlocked(prompt,renderer,spinner)
+
+    def execute_turn_unlocked(prompt, renderer, spinner):
         if provider != "openai-codex" or explicit_base_url:
             refresh_auth()
             return run_turn(args.binary, workspace, build_request(prompt), renderer, spinner)
@@ -1490,7 +1518,7 @@ def main(argv: list[str] | None = None) -> int:
         with codex_pool.turn(session_id,state["model"],on_select=selected) as (snapshot,info):
             os.environ["OPENAI_CODEX_AUTH_FILE"] = snapshot
             code = run_turn(args.binary,workspace,build_request(prompt),renderer,spinner)
-            if code not in (0,130) and codex_pool.note_error(info["key"],renderer.last_error):
+            if code not in (0,130) and codex_pool.note_error(info["key"],renderer.last_error,state["model"]):
                 state["quota_error_model"] = state["model"]
                 print(theme.paint("  Лимит Codex достигнут. Следующий ход выберет доступный аккаунт; текущий ход НЕ повторяется автоматически.","warn"))
             return code
@@ -1584,13 +1612,13 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             if prompt in ("/exit", "/quit"):
                 break
-            if prompt.split()[0] in ("/login", "/logout", "/auth", "/usage", "/accounts", "/rotation"):
+            if prompt.split()[0] in ("/login", "/logout", "/auth", "/usage", "/accounts", "/rotation", "/doctor"):
                 import native_auth
                 import shlex
                 try:
                     parts = shlex.split(prompt)
                     action = parts.pop(0)[1:]
-                    if action == "auth" and parts and parts[0] in ("accounts", "use", "rotation", "usage", "status"):
+                    if action == "auth" and parts and parts[0] in ("accounts", "use", "rotation", "usage", "status", "doctor"):
                         native_auth.main(parts,theme=theme)
                         sync_auth_status()
                         continue
@@ -1604,6 +1632,8 @@ def main(argv: list[str] | None = None) -> int:
                     if not parts or parts[0].startswith("--"):
                         if providers_module is not None and providers_module.is_oauth(provider):
                             parts.insert(0, provider)
+                        elif action == "doctor":
+                            parts.insert(0,"openai-codex")
                         elif action == "auth":
                             print(f"{provider}: {credential_state(provider)}")
                             continue
@@ -1626,7 +1656,7 @@ def main(argv: list[str] | None = None) -> int:
                     providers_module._AUTH_STATE_CACHE.clear()
                 continue
             if prompt == "/status":
-                print(status_line(theme, state, metrics, provider, session_id, context_limit))
+                print(live_status_line())
                 print(theme.paint("  ctx uses the last request + output, not cumulative token billing; ~ means approximate", "dim"))
                 continue
             if prompt == "/context" or prompt.startswith("/context "):
@@ -1963,8 +1993,17 @@ def main(argv: list[str] | None = None) -> int:
             spinner = Spinner(theme, spinner_on, footer=footer)
             try:
                 code = execute_turn(prompt,renderer,spinner)
+            except KeyboardInterrupt:
+                print(theme.paint("Подготовка отменена; запрос не отправлен.", "warn"))
+                if reader is not None and not renderer.was_started:
+                    next_draft = prompt
+                last_interrupt = time.monotonic()
+                continue
             except Exception as error:
                 print(theme.paint(str(error), "error"))
+                if reader is not None and not renderer.was_started:
+                    next_draft = prompt
+                    print(theme.paint("Текст сохранён в черновике; ход не был запущен.", "dim"))
                 continue
             next_draft = getattr(renderer, "pending_input", "")
             metrics.elapsed = time.monotonic() - renderer.started_at

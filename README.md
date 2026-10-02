@@ -456,3 +456,42 @@ have regression tests, including runner integration. A complete fresh browser
 OAuth flow still requires the user's consent, and live cross-account replay of
 provider-encrypted history has not been certified. Do not claim Google support
 or universal provider compatibility from these tests.
+
+
+### Auth/usage hardening (0.5.1)
+
+```sh
+uachat doctor                      # same as auth doctor (Codex)
+uachat auth doctor google-antigravity
+```
+
+In chat: `/doctor [provider]`. Diagnostics are **read-only**: launcher presence,
+callback-port availability, runner presence, own auth files, local access expiry,
+refresh-token presence and file permissions. No browser/network/refresh is
+triggered; proxy values and token contents are hidden. Launcher detection and
+local expiry do not prove server-side authentication or connectivity.
+
+- Login validates new credentials in memory; a failed pool registration does not
+  overwrite the active compatibility auth file. Refresh returning a different
+  account/user, malformed token fields or API-key credentials is rejected before
+  writing over valid stored credentials.
+- Busy account leases no longer hang another client indefinitely. Rotation can
+  select an idle saved sibling; otherwise preparation fails clearly. Account
+  use/register/logout waits at most five seconds. `usage --cached` can return
+  recent cached data while a turn owns that account; a forced network check does
+  not race a running account refresh.
+- A per-session client lock prevents two uachat processes from concurrently
+  modifying the same conversation, even with different accounts/providers. This
+  does not lock independent direct invocations of upstream unreal-agent-runner.
+- Preflight failure or cancellation preserves an editable prompt in the raw
+  editor. No failed/already-started agent turn is automatically replayed.
+- The footer monitors the private quota cache's file version: another client's
+  usage refresh or account selection is reflected without typing or HTTP polling.
+  Status belongs to this session, not blindly to the global active account.
+  Quota warnings are scoped to the affected model and clear after a successful
+  authoritative quota refresh. Account listing shows safe refresh-failure hints.
+
+Regression tests include separate-process lock holders, PTY draft restoration,
+idle footer updates, cross-account refresh rejection, failed registration and
+read-only diagnostics. The full offline/mock suite now has 72 tests, plus the
+11 command-UI checks.

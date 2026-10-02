@@ -3,18 +3,35 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import time
 from contextlib import contextmanager
 
 
+class LockBusyError(TimeoutError):
+    """Lock was not acquired before the caller's deadline."""
+
+
 @contextmanager
-def file_lock(path):
+def file_lock(path, timeout=None):
     import fcntl
     parent = os.path.dirname(os.path.abspath(path))
     os.makedirs(parent, mode=0o700, exist_ok=True)
     fd = os.open(path + '.lock', os.O_CREAT | os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0), 0o600)
     try:
         os.fchmod(fd, 0o600)
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        if timeout is None:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        else:
+            deadline = time.monotonic() + max(0,timeout)
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    remaining = deadline-time.monotonic()
+                    if remaining <= 0:
+                        raise LockBusyError('ресурс занят другим клиентом; операция не начата') from None
+                    time.sleep(min(.05,remaining))
         yield
     finally:
         os.close(fd)
