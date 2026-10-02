@@ -1,27 +1,10 @@
 #!/usr/bin/env python3
-"""ChatGPT/Codex subscription credentials for the uachat harness.
+"""Native uachat ChatGPT/Codex credentials and optional migration helpers.
 
-Collects the OAuth accounts that can front the harness' `openai-codex`
-provider from two places:
-
-* the omp credential store (`auth_credentials`, provider `openai-codex`,
-  credential type `oauth`), read through a temporary copy because the
-  WAL-mode SQLite file under /mnt/c cannot be read in place from WSL;
-* Codex CLI's own `auth.json` (`$CODEX_HOME/auth.json`, default
-  `~/.codex/auth.json`).
-
-The newest unexpired account can then be written to
-`~/.config/uachat/codex/auth.json` in the exact shape the harness wants: a
-0600 regular file holding `{"auth_mode": "chatgpt", "tokens": {...}}`.
-Expiry comes from the store's `expires` (epoch ms) or from the access token's
-JWT `exp` claim (decoded without signature verification).
-
-Stdlib only. Token values never reach the report: it lists sources, emails,
-hours left and token lengths.
-
-Standalone: `python3 codex_auth.py --check` prints the account table;
-`python3 codex_auth.py --use <email>` (or with no arguments) also writes the
-auth file for the newest valid account.
+Login and refresh live in native_auth.py. Normal discovery reads only uachat's
+own private auth.json. External OMP/Codex stores are read only on explicit
+`uachat login --import-existing`; neither application is required.
+Stdlib only. No token values are printed.
 """
 from __future__ import annotations
 
@@ -51,7 +34,7 @@ SOURCE_CODEX = "codex"
 
 EXPIRED_HINT = (
     "все сохранённые токены Codex истекли; "
-    "выполните вход в omp или Codex CLI и повторите"
+    "выполните uachat login openai-codex"
 )
 
 _TABLE_HEADERS = ("source", "email", "expires_h", "valid", "token_len")
@@ -62,7 +45,7 @@ _ACCOUNTS: list[dict] | None = None
 
 
 def accounts() -> list[dict]:
-    """Every Codex account discovered in the omp store and Codex CLI, newest first.
+    """The native uachat Codex account, if logged in.
 
     Each entry is {source, email, account_id, expires_ms, access, refresh,
     valid}; `valid` marks an unexpired access token. Entries with an unreadable
@@ -70,7 +53,15 @@ def accounts() -> list[dict]:
     """
     global _ACCOUNTS
     if _ACCOUNTS is None:
-        found = _omp_accounts() + _codex_accounts()
+        payload = _read_json(os.path.expanduser(CODEX_AUTH_PATH))
+        found = []
+        if isinstance(payload, dict) and isinstance(payload.get("tokens"), dict):
+            tokens = payload["tokens"]
+            access = _text(tokens.get("access_token"))
+            claims = _jwt_claims(access)
+            found.append(_account("uachat", payload.get("email") or _claim_email(claims),
+                tokens.get("account_id"), payload.get("expires_ms") or _expires_from_token(access),
+                access, tokens.get("refresh_token")))
         found.sort(key=lambda item: item["expires_ms"] or 0, reverse=True)
         _ACCOUNTS = found
     return [dict(item) for item in _ACCOUNTS]
@@ -103,30 +94,13 @@ def prepare(path: str = CODEX_AUTH_PATH, email: str | None = None) -> dict:
     Returns {path, email, expires_in_hours, source}; token values are never
     returned or printed.
     """
-    account = pick(email)
-    access = account["access"]
-    account_id = account["account_id"]
-    if not access or not account_id:
-        raise ValueError(
-            f"account {account['email'] or '?'} from {account['source']} has no "
-            "access token or account id; sign in again"
-        )
-    if access.startswith("sk-"):
-        raise ValueError(
-            f"account {account['email'] or '?'} from {account['source']} holds an API key, "
-            "not a ChatGPT subscription token; the harness rejects those"
-        )
-    tokens = {"access_token": access, "account_id": account_id}
-    if account["refresh"]:
-        tokens["refresh_token"] = account["refresh"]
+    from native_auth import ensure_fresh
     target = os.path.expanduser(path)
-    _write_private_json(target, {"auth_mode": _HARNESS_AUTH_MODE, "tokens": tokens})
-    return {
-        "path": target,
-        "email": account["email"],
-        "expires_in_hours": _hours_left(account["expires_ms"]),
-        "source": account["source"],
-    }
+    payload = ensure_fresh(target)
+    global _ACCOUNTS
+    _ACCOUNTS = None
+    return {"path": target, "email": payload.get("email"), "source": "uachat",
+            "expires_in_hours": _hours_left(payload.get("expires_ms"))}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -419,7 +393,7 @@ def _write_private_json(path: str, payload: dict) -> None:
 
 def _print_table(found: list[dict]) -> None:
     if not found:
-        print("no Codex accounts found in the omp store or the Codex CLI auth file")
+        print("not logged in; run uachat login openai-codex")
         return
     rows: list[tuple[str, ...]] = []
     for account in found:

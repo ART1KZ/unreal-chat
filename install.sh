@@ -78,7 +78,7 @@ if errorlevel 1 (
   echo wsl.exe not found - uachat runs inside WSL2 Ubuntu. 1>&2
   exit /b 1
 )
-set \"WSLENV=%WSLENV%:OPENAI_API_KEY/u:UNREAL_HARNESS_LLM_API_KEY/u:UNREAL_HARNESS_LLM_PROVIDER/u:UNREAL_HARNESS_LLM_MODEL/u:UNREAL_HARNESS_LLM_BASE_URL/u:UNREAL_HARNESS_LLM_MAX_ATTEMPTS/u\"
+set \"WSLENV=%WSLENV%:OPENAI_API_KEY/u:UNREAL_HARNESS_LLM_API_KEY/u:UNREAL_HARNESS_LLM_PROVIDER/u:UNREAL_HARNESS_LLM_MODEL/u:UNREAL_HARNESS_LLM_BASE_URL/u:UNREAL_HARNESS_LLM_MAX_ATTEMPTS/u:UACHAT_ANTIGRAVITY_CLIENT_ID/u:UACHAT_ANTIGRAVITY_CLIENT_SECRET/u\"
 wsl.exe -d Ubuntu -- uachat %*
 exit /b %errorlevel%
 '''
@@ -89,7 +89,7 @@ if errorlevel 1 (
   echo wsl.exe not found - unreal-agent-runner runs inside WSL2 Ubuntu. 1>&2
   exit /b 1
 )
-set \"WSLENV=%WSLENV%:OPENAI_API_KEY/u:UNREAL_HARNESS_LLM_API_KEY/u:UNREAL_HARNESS_LLM_PROVIDER/u:UNREAL_HARNESS_LLM_MODEL/u:UNREAL_HARNESS_LLM_BASE_URL/u:UNREAL_HARNESS_LLM_MAX_ATTEMPTS/u\"
+set \"WSLENV=%WSLENV%:OPENAI_API_KEY/u:UNREAL_HARNESS_LLM_API_KEY/u:UNREAL_HARNESS_LLM_PROVIDER/u:UNREAL_HARNESS_LLM_MODEL/u:UNREAL_HARNESS_LLM_BASE_URL/u:UNREAL_HARNESS_LLM_MAX_ATTEMPTS/u:UACHAT_ANTIGRAVITY_CLIENT_ID/u:UACHAT_ANTIGRAVITY_CLIENT_SECRET/u\"
 wsl.exe -d Ubuntu -- unreal-agent-runner %*
 exit /b %errorlevel%
 '''
@@ -116,10 +116,7 @@ echo "=== 6. Initializing configuration ==="
 mkdir -p "$HOME/.config/uachat"
 CONFIG_FILE="$HOME/.config/uachat/env"
 if [ ! -f "$CONFIG_FILE" ]; then
-  # Try to extract key from omp if present
-  if python3 "$REPO_DIR/extract-key.py" 2>/dev/null; then
-    echo "  Config created automatically from omp store: $CONFIG_FILE"
-  else
+  # Own configuration only. External credential migration is explicitly opt-in.
     cat > "$CONFIG_FILE" <<'EOF'
 # uachat configuration
 UNREAL_HARNESS_LLM_MODEL=deepseek-v4.1-flash
@@ -133,7 +130,6 @@ UACHAT_PROVIDER=opencode-go
 EOF
     chmod 600 "$CONFIG_FILE"
     echo "  Created template config at $CONFIG_FILE"
-  fi
 else
   echo "  Existing config kept: $CONFIG_FILE"
 fi

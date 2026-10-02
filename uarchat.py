@@ -114,10 +114,13 @@ THEMES: dict[str, dict[str, str]] = {
 }
 
 COMMANDS = (
-    "/help", "/new", "/sessions", "/resume", "/session",
+    "/login", "/logout", "/auth", "/help", "/new", "/sessions", "/resume", "/session",
     "/provider", "/model", "/thinking", "/theme", "/themes", "/rtk", "/copy", "/dump", "/repair", "/exit", "/quit",
 )
 COMMAND_HELP = {
+    "/login": "sign in to Codex (--headless for device login)",
+    "/logout": "remove uachat Codex credentials",
+    "/auth": "show authorization status",
     "/help": "this text",
     "/new": "start a fresh session",
     "/sessions": "list recent sessions",
@@ -420,6 +423,7 @@ PROVIDER_DEFAULT_MODELS = {
     "openrouter": "deepseek/deepseek-v4.1-flash",
     "openai": "gpt-6-astra",
     "openai-codex": "gpt-5.6-sol",
+    "google-antigravity": "gemini-3-flash",
     "fireworks": "",
     "ollama": "llama3",
 }
@@ -1158,6 +1162,9 @@ def banner(theme: Theme, workspace: str, session: str, model: str, endpoint: str
 
 
 HELP = """commands:
+  /login [openai-codex] [--headless]   standalone Codex OAuth
+  /logout          remove uachat Codex credentials
+  /auth            authorization status
   /help            this text
   /new [name]      start a fresh session (named or generated)
   /sessions        list recent sessions with their first prompt
@@ -1191,7 +1198,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--themes", action="store_true", help="list themes and exit")
     parser.add_argument("--version", action="store_true", help="print the client version and exit")
     parser.add_argument("--list", action="store_true", help="list recent sessions and exit")
-    parser.add_argument("--provider", help="sets UNREAL_HARNESS_LLM_PROVIDER")
+    parser.add_argument("--provider", help="select a client provider (e.g. openai-codex, google-antigravity)")
     parser.add_argument("--binary", default="unreal-agent-runner", help="runner binary path")
     parser.add_argument("--update-core", action="store_true", help="update the unreal-agent runner from upstream and exit")
     parser.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="colour output")
@@ -1200,7 +1207,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if raw and raw[0] in ("login", "logout", "auth"):
+        import native_auth
+        action = raw.pop(0)
+        if action == "auth":
+            action = raw.pop(0) if raw else "status"
+        return native_auth.main([action] + raw)
+    args = build_parser().parse_args(raw)
 
     # An explicitly exported base URL (outside ~/.config/uachat/env) wins and
     # keeps the bridge out of the way, e.g. when pointing at a local mock.
@@ -1244,9 +1258,11 @@ def main(argv: list[str] | None = None) -> int:
 
     workspace = os.path.abspath(args.workspace)
     session_id = args.session or uuid.uuid4().hex[:12]
-    provider = (os.environ.get("UACHAT_PROVIDER") or config.get("UACHAT_PROVIDER") or DEFAULT_PROVIDER).strip()
+    provider = (args.provider or os.environ.get("UACHAT_PROVIDER") or config.get("UACHAT_PROVIDER") or DEFAULT_PROVIDER).strip()
     if args.provider:
         os.environ["UNREAL_HARNESS_LLM_PROVIDER"] = args.provider
+        if not args.model and provider in PROVIDER_DEFAULT_MODELS:
+            os.environ["UNREAL_HARNESS_LLM_MODEL"] = PROVIDER_DEFAULT_MODELS[provider]
 
     bridge: Bridge | None = None
 
@@ -1260,6 +1276,15 @@ def main(argv: list[str] | None = None) -> int:
             return explicit_base_url
         spec = provider_spec(provider)
         key = provider_key(provider)
+        if provider == "google-antigravity":
+            from antigravity import AntigravityBridge
+            bridge = AntigravityBridge(current_session)
+            base_url = bridge.start()
+            os.environ["UNREAL_HARNESS_LLM_PROVIDER"] = "openai"
+            os.environ["UNREAL_HARNESS_LLM_BASE_URL"] = base_url
+            os.environ["UNREAL_HARNESS_LLM_API_KEY"] = bridge.key
+            os.environ.pop("OPENAI_CODEX_AUTH_FILE", None)
+            return f"{base_url} → {spec['base_url']} (experimental)"
         if spec.get("bridge"):
             if not key:
                 return f"(no key for {provider})"
@@ -1284,6 +1309,10 @@ def main(argv: list[str] | None = None) -> int:
                 return f"({provider}: {error})"
         return spec.get("base_url", "(provider default)")
 
+    def refresh_auth() -> None:
+        if not explicit_base_url and providers_module is not None and providers_module.is_oauth(provider):
+            os.environ.update(providers_module.auth_env(provider))
+
     def build_request(prompt: str) -> dict:
         request: dict = {"prompt": prompt, "session_id": session_id}
         if args.model:
@@ -1304,6 +1333,11 @@ def main(argv: list[str] | None = None) -> int:
             kick_off_update_check(config)
             renderer = Renderer(theme, model=model, thinking=thinking)
             spinner = Spinner(theme, spinner_on)
+            try:
+                refresh_auth()
+            except Exception as error:
+                print(theme.paint(str(error), "error"))
+                return 1
             return run_turn(args.binary, workspace, build_request(args.prompt), renderer, spinner)
 
         print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
@@ -1359,6 +1393,19 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             if prompt in ("/exit", "/quit"):
                 break
+            if prompt.split()[0] in ("/login", "/logout", "/auth"):
+                import native_auth
+                import shlex
+                try:
+                    parts = shlex.split(prompt)
+                    action = parts.pop(0)[1:]
+                    native_auth.main(["status" if action == "auth" else action] + parts)
+                except (ValueError, SystemExit) as error:
+                    if isinstance(error, ValueError):
+                        print(theme.paint(str(error), "error"))
+                if providers_module is not None:
+                    providers_module._AUTH_STATE_CACHE.clear()
+                continue
             if prompt == "/help":
                 print(HELP)
                 continue
@@ -1664,6 +1711,11 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             renderer = Renderer(theme, model=state.get("model", ""), thinking=state.get("thinking", ""))
             spinner = Spinner(theme, spinner_on)
+            try:
+                refresh_auth()
+            except Exception as error:
+                print(theme.paint(str(error), "error"))
+                continue
             code = run_turn(args.binary, workspace, build_request(prompt), renderer, spinner)
             transcript.append(("you", prompt))
             if renderer.last_assistant.strip():

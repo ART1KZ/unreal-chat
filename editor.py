@@ -13,7 +13,7 @@ Public API
 
 Notes
 -----
-* The editor redraws its own block (menu rows + input row) on every keystroke;
+* The editor redraws its own block (menu rows + wrapped input viewport) on every keystroke;
   the caller must not print to stdout while ``read_line`` is blocked on input,
   because that would move the cursor away from the block the editor repaints.
   Output written between two ``read_line`` calls is fine (proved by the demo,
@@ -35,6 +35,7 @@ Notes
 from __future__ import annotations
 
 import os
+import json
 import re
 import shutil
 import sys
@@ -57,6 +58,8 @@ RESET = "\033[0m"
 BOLD = "1"
 HIDE_CURSOR = "\033[?25l"
 SHOW_CURSOR = "\033[?25h"
+PASTE_ON = "\033[?2004h"
+PASTE_OFF = "\033[?2004l"
 CLEAR_TO_END = "\033[J"
 ERASE_SCREEN = "\033[2J\033[H"
 REVERSE = "\033[7m"
@@ -179,6 +182,7 @@ class Editor:
         self._sel = 0
         self._dismissed = False
         self._rows = 0
+        self._cursor_row = 0
         self._hist_pos: int | None = None
         self._draft = ""
 
@@ -200,6 +204,7 @@ class Editor:
         self._sel = 0
         self._dismissed = False
         self._rows = 0
+        self._cursor_row = 0
         self._hist_pos = None
         self._draft = ""
         self._refresh()
@@ -211,12 +216,14 @@ class Editor:
                 tty.setraw(fd, termios.TCSADRAIN)
             except TypeError:  # pragma: no cover - Python < 3.12
                 tty.setraw(fd)
-            sys.stdout.write(HIDE_CURSOR)
+            sys.stdout.write(PASTE_ON + SHOW_CURSOR)
             self._render(prompt)
             while True:
                 kind, value = self._read_key()
                 if kind == "text":
                     self._insert(value)
+                elif value == "newline":
+                    self._insert("\n")
                 elif value == "enter":
                     if not self._accept_pending():
                         completed = True
@@ -256,6 +263,7 @@ class Editor:
                 elif value == "ctrl-w":
                     self._kill_word()
                 elif value == "ctrl-l":
+                    self._cursor_row = 0
                     self._rows = 0
                     sys.stdout.write(ERASE_SCREEN)
                 self._render(prompt)
@@ -275,53 +283,64 @@ class Editor:
 
     # ------------------------------------------------------------- rendering
 
+    def _layout(self, prompt: str, width: int) -> tuple[list[str], int, int]:
+        """Explicit physical rows; reserve the last column to avoid autowrap."""
+        limit = max(1, width - 1)
+        prompt = _fit(prompt, min(_visible_width(prompt), max(0, limit - 1)))
+        indent = min(_visible_width(prompt), max(0, limit - 1))
+        lines = [prompt]
+        positions = {}
+        col = indent
+        cursor = (0, col)
+        for index, char in enumerate(self._buffer):
+            step = _char_width(char)
+            if char != "\n" and col + step > limit:
+                lines.append(" " * indent)
+                col = indent
+            positions[index] = (len(lines) - 1, col)
+            if index == self._pos:
+                cursor = (len(lines) - 1, col)
+            if char == "\n":
+                lines.append(" " * indent)
+                col = indent
+            else:
+                lines[-1] += char
+                col += step
+        if self._pos == len(self._buffer):
+            cursor = (len(lines) - 1, col)
+        positions[len(self._buffer)] = (len(lines) - 1, col)
+        self._positions = positions
+        return lines, *cursor
+
     def _render(self, prompt: str) -> None:
-        width = shutil.get_terminal_size((80, 24)).columns
-        menu = self._menu_lines(width)
-        out: list[str] = []
-        up = self._rows - 1
-        if up > 0:
-            out.append(f"\033[{up}A")
+        size = shutil.get_terminal_size((80, 24))
+        menu = self._menu_lines(size.columns)[:max(0, size.lines - 3)]
+        lines, row, column = self._layout(prompt, size.columns)
+        capacity = max(1, size.lines - len(menu) - 1)
+        if len(lines) > capacity and size.lines >= 4:
+            capacity = max(1, capacity - 1)
+            above = max(0, min(row - capacity + 1, len(lines) - capacity))
+            below = max(0, len(lines) - above - capacity)
+            menu.append(_fit(self.paint(f"  ↑ {above} · ↓ {below} rows · {len(self._buffer)} chars", "dim"), size.columns - 1))
+        start = max(0, min(row - capacity + 1, len(lines) - capacity))
+        visible = lines[start:start + capacity]
+        target = len(menu) + row - start
+        out = [HIDE_CURSOR]
+        if self._cursor_row:
+            out.append(f"\033[{self._cursor_row}A")
         out.append("\r" + CLEAR_TO_END)
-        for line in menu:
-            out.append(line + NL)
-        out.append(self._input_line(prompt, width))
-        self._rows = len(menu) + 1
+        out.append(NL.join(menu + visible))
+        bottom = len(menu) + len(visible) - 1
+        if bottom > target:
+            out.append(f"\033[{bottom - target}A")
+        out.append("\r")
+        if column:
+            out.append(f"\033[{column}C")
+        out.append(SHOW_CURSOR)
+        self._rows = bottom + 1
+        self._cursor_row = target
         sys.stdout.write("".join(out))
         sys.stdout.flush()
-
-    def _input_line(self, prompt: str, width: int) -> str:
-        """Prompt plus a windowed view of the buffer, with the cursor placed.
-
-        The window never exceeds the terminal width in *columns*, so the input
-        row stays a single physical row and the editor's row accounting (used
-        to move back over the block on the next repaint) stays correct.
-        """
-        prompt_width = _visible_width(prompt)
-        available = max(4, width - prompt_width - 1)
-        start = self._pos
-        used = 0
-        while start > 0:
-            step = _char_width(self._buffer[start - 1])
-            if used + step > available:
-                break
-            used += step
-            start -= 1
-        end = start
-        used = 0
-        while end < len(self._buffer):
-            step = _char_width(self._buffer[end])
-            if used + step > available:
-                break
-            used += step
-            end += 1
-        shown = self._buffer[start:end]
-        cursor_column = prompt_width + _plain_width(self._buffer[start : self._pos])
-        column = prompt_width + _plain_width(shown)
-        line = prompt + shown
-        if cursor_column < column:
-            line += f"\033[{column - cursor_column}D"
-        return line
 
     def _menu_lines(self, width: int) -> list[str]:
         if not self._menu_open():
@@ -347,13 +366,13 @@ class Editor:
 
     def _teardown(self, prompt: str, keep: bool) -> None:
         """Erase the drawn block and leave the cursor at the start of a new line."""
-        out = [SHOW_CURSOR]
+        out = [PASTE_OFF, SHOW_CURSOR]
         if self._rows:
-            if self._rows > 1:
-                out.append(f"\033[{self._rows - 1}A")
+            if self._cursor_row:
+                out.append(f"\033[{self._cursor_row}A")
             out.append("\r" + CLEAR_TO_END)
             if keep:
-                out.append(prompt + self._buffer)
+                out.append(prompt + self._buffer.replace("\n", NL))
             out.append(NL)
         elif keep:
             out.append(prompt + self._buffer + NL)
@@ -475,6 +494,14 @@ class Editor:
         if self._menu_open():
             self._sel = (self._sel + step) % len(self._sugg)
             return
+        positions = getattr(self, "_positions", {})
+        if positions and max(r for r, c in positions.values()) > 0:
+            row, column = positions.get(self._pos, (0, 0))
+            candidates = [(abs(c - column), index) for index, (r, c) in positions.items()
+                          if r == row + step]
+            if candidates:
+                self._pos = min(candidates)[1]
+            return
         self._history_step(step)
 
     def _history_step(self, step: int) -> None:
@@ -512,6 +539,13 @@ class Editor:
             return
         for line in lines:
             line = line.rstrip("\r")
+            if line.startswith('"'):
+                try:
+                    decoded = json.loads(line)
+                    if isinstance(decoded, str):
+                        line = decoded
+                except ValueError:
+                    pass
             if not line.strip():
                 continue
             if self.history and self.history[-1] == line:
@@ -531,7 +565,7 @@ class Editor:
         try:
             os.makedirs(os.path.dirname(os.path.abspath(self.history_path)), exist_ok=True)
             with open(self.history_path, "w", encoding="utf-8") as handle:
-                handle.write("\n".join(self.history) + "\n")
+                handle.write("\n".join(json.dumps(item, ensure_ascii=False) for item in self.history) + "\n")
         except OSError:
             pass
 
@@ -585,7 +619,7 @@ def read_raw_escape(fd: int) -> tuple[str, str]:
     """Parse the bytes after ESC: a key sequence, or a lone ESC."""
     rest = ""
     timeout = 0.05
-    while len(rest) < 8:
+    while len(rest) < 32:
         if not select.select([fd], [], [], timeout)[0]:
             break
         chunk = os.read(fd, 1)
@@ -599,6 +633,22 @@ def read_raw_escape(fd: int) -> tuple[str, str]:
         timeout = 0.02
     if not rest:
         return ("key", "esc")
+    if rest in ("\r", "\n", "[13;2u", "[27;2;13~"):
+        return ("key", "newline")
+    if rest == "[200~":
+        data = bytearray()
+        end = b"\x1b[201~"
+        while not data.endswith(end):
+            chunk = os.read(fd, 1)
+            if not chunk:
+                raise EOFError("stdin closed during paste")
+            data.extend(chunk)
+        text = data[:-len(end)].decode("utf-8", errors="replace")
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        # Never interpret pasted control bytes as terminal commands.
+        text = "".join(c if c != "\t" else "    " for c in text
+                       if c in "\n\t" or (ord(c) >= 32 and ord(c) != 127))
+        return ("text", text)
     if rest[0] in ("[", "O"):
         sequence = rest[1:]
         if sequence in SEQUENCES:

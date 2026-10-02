@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
-"""Provider catalogue for the uachat client.
+"""Provider catalogue for uachat (stdlib only).
 
-Describes every LLM provider uachat can target: its harness name, base URL,
-whether the local Responses bridge must front it, and how to find its
-credentials. API keys come from the environment first, then from the omp
-credential store (`auth_credentials`), which is read through a temporary copy:
-WAL-mode SQLite under /mnt/c is not reliably readable from WSL in place.
-OAuth providers (openai-codex) instead get an auth file prepared from live
-ChatGPT tokens through codex_auth.py.
-
-Standalone (stdlib only): `python3 providers.py` prints one status line per
-provider and fetches `{base_url}/models` to fill the report. Keys are never
-printed — only whether one was found.
+Normal operation reads keys from environment/uachat config, OAuth credentials
+from uachat's private store. Legacy OMP migration helpers are opt-in only;
+no external application or store is required. Keys are never printed.
 """
 from __future__ import annotations
 
@@ -35,7 +27,7 @@ try:
 except ImportError:  # pragma: no cover - models.py absent
     models_module = None
 
-PROVIDER_IDS: list[str] = ["opencode-go", "openai-codex", "openrouter", "openai", "fireworks", "ollama"]
+PROVIDER_IDS: list[str] = ["opencode-go", "openai-codex", "google-antigravity", "openrouter", "openai", "fireworks", "ollama"]
 
 # openai-codex speaks the ChatGPT backend, which has no public /models route:
 # its catalogue is fixed and bundled here.
@@ -68,6 +60,12 @@ def _codex_auth_path() -> str:
 # Responses bridge (custom headers), `env` names the key's environment variable,
 # and `auth` is one of "key", "keyless", "oauth".
 _DEFINITIONS: dict[str, dict] = {
+    "google-antigravity": {
+        "label": "Google Antigravity (experimental, standalone)", "harness": "openai",
+        "base_url": "https://daily-cloudcode-pa.googleapis.com", "bridge": True,
+        "needs_key": False, "env": "", "auth": "oauth",
+        "models": ["gemini-3-flash", "gemini-3.6-flash", "gemini-3.5-pro", "claude-sonnet-4-6"],
+    },
     "opencode-go": {
         "label": "OpenCode Go (zen gateway)",
         "harness": "openai",
@@ -145,10 +143,10 @@ def spec(provider_id: str) -> dict:
 
 
 def key_for(provider_id: str) -> str | None:
-    """Resolve the provider's API key: environment first, then the omp store."""
+    """Resolve the provider API key from environment/uachat config only."""
     _definition(provider_id)
     if provider_id not in _KEY_CACHE:
-        _KEY_CACHE[provider_id] = _env_key(provider_id) or _store_keys().get(provider_id)
+        _KEY_CACHE[provider_id] = _env_key(provider_id)
     return _KEY_CACHE[provider_id]
 
 
@@ -205,6 +203,10 @@ def auth_env(provider_id: str) -> dict[str, str]:
     its path is returned as OPENAI_CODEX_AUTH_FILE. Every other provider returns
     {} because its credentials travel in UNREAL_HARNESS_LLM_API_KEY instead.
     """
+    if provider_id == "google-antigravity":
+        import antigravity
+        antigravity.credentials()
+        return {}
     if not is_oauth(provider_id):
         return {}
     codex_auth = _codex_auth()
@@ -235,7 +237,11 @@ def auth_state(provider_id: str) -> str:
     cached = _AUTH_STATE_CACHE.get(provider_id)
     if cached is not None:
         return cached
-    if str(definition.get("auth", "")).lower() == "oauth":
+    if provider_id == "google-antigravity":
+        import antigravity
+        payload = antigravity.codex_auth._read_json(os.path.expanduser(antigravity.AUTH_PATH))
+        state = "oauth" if isinstance(payload, dict) and payload.get("expires_ms", 0) > time.time()*1000 else "oauth expired"
+    elif str(definition.get("auth", "")).lower() == "oauth":
         state = "oauth" if _oauth_live() else "oauth expired"
     elif not definition["needs_key"]:
         state = "keyless"
@@ -414,7 +420,7 @@ def _missing_hint(provider_id: str) -> str:
     if not info["needs_key"]:
         return f"no models: is the local server running at {info['base_url'].removesuffix('/v1')}?"
     if not has_key(provider_id):
-        return f"no models: no API key (set {_definition(provider_id)['env']} or add one to the omp store)"
+        return f"no models: no API key (set {_definition(provider_id)['env']} in the environment or uachat config)"
     return f"no models: {info['base_url']}/models did not answer"
 
 

@@ -192,3 +192,26 @@ wrapped as `{"type":"item","data":{"Item":{…}}}`. `Item.Kind`:
   covered indirectly by PTY tests).
 - Extend the Windows shim env allowlist and document `WSLENV` behaviour.
 - Configurable per-workspace default session naming.
+
+## 11. Standalone auth and editor follow-up
+
+- `native_auth.py`: native Codex browser PKCE/device login, locked refresh,
+  own credentials, status/logout; explicit `--import-existing` migration.
+  `codex_auth.py` now discovers **only uachat's auth file** by default.
+- `antigravity.py`: experimental independent Google OAuth + Responses/Cloud
+  Code bridge, daily routing, consumer-project fallback, numeric Flash budgets,
+  private signature sidecars. No OMP runtime/store dependency. Text/function
+  tools only; no rotation yet. Real provider OAuth and regional access have
+  NOT been live-tested. See README limitations before calling it production.
+- `editor.py`: visible cursor, wrapped multiline viewport, bracketed paste,
+  Alt+Enter/extended Shift+Enter, visual-row navigation, JSON-encoded history
+  entries (legacy plain lines still load). Terminal bracketed-paste support
+  is required to distinguish a multiline paste from individual Enter keys.
+- `test_editor_auth.py` / `test_antigravity.py`: offline regression contracts.
+
+- API key resolution and install no longer auto-read OMP stores. Legacy import
+  helpers remain explicitly opt-in; normal startup uses only uachat config.
+
+- Google OAuth application ID/secret are private config, NOT bundled constants:
+  `UACHAT_ANTIGRAVITY_CLIENT_ID` / `UACHAT_ANTIGRAVITY_CLIENT_SECRET`. Both
+  generated Windows shims forward them. Secret scanner also checks Google OAuth.

@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 
 # Real keys are long: sk-… (OpenAI/OpenCode/Fireworks), gho_/ghp_/github_pat_ (GitHub).
 # Short placeholders like `sk-...` in docs must not trip the scan.
-PATTERN='sk-[A-Za-z0-9_-]{24,}|gho_[A-Za-z0-9]{30,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}'
+PATTERN='sk-[A-Za-z0-9_-]{24,}|gho_[A-Za-z0-9]{30,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|[0-9]{10,}-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com|GOCSPX-[A-Za-z0-9_-]{20,}'
 
 hits=$(git grep -nIE "$PATTERN" -- . ':!check-secrets.sh' 2>/dev/null || true)
 if [ -z "$hits" ]; then
