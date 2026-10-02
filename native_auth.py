@@ -6,6 +6,7 @@ This implementation uses the public Codex OAuth client, PKCE and device login.
 from __future__ import annotations
 
 import argparse
+import sys
 import base64
 import hashlib
 import http.server
@@ -17,7 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from secure_http import urlopen as secure_urlopen
-import webbrowser
+from auth_ui import AuthUI, open_browser
 from contextlib import contextmanager
 
 import codex_auth
@@ -82,7 +83,7 @@ def _save(response: dict, path: str, previous: dict | None = None) -> None:
     codex_auth._ACCOUNTS = None
 
 
-def ensure_fresh(path: str) -> dict:
+def ensure_fresh(path: str, force: bool = False) -> dict:
     """Refresh under a process lock; never discard usable rotating credentials."""
     with _lock(path):
         payload = codex_auth._read_json(path)
@@ -92,7 +93,7 @@ def ensure_fresh(path: str) -> dict:
         if not isinstance(tokens.get('access_token'), str) or not tokens.get('account_id'):
             raise ValueError('invalid auth file; run uachat login openai-codex')
         expiry = positive_int(payload.get('expires_ms')) or codex_auth._expires_from_token(tokens.get('access_token'))
-        if not expiry or expiry <= (time.time() + 120) * 1000:
+        if force or not expiry or expiry <= (time.time() + 120) * 1000:
             if not tokens.get('refresh_token'):
                 raise ValueError('token expired; run uachat login openai-codex')
             response = _post('/oauth/token', {'grant_type': 'refresh_token',
@@ -102,7 +103,8 @@ def ensure_fresh(path: str) -> dict:
         return payload
 
 
-def browser_login() -> dict:
+def browser_login(ui=None, *, port=1455) -> dict:
+    ui = ui or AuthUI()
     verifier = secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
     state = secrets.token_urlsafe(32)
@@ -136,16 +138,16 @@ def browser_login() -> dict:
             self.end_headers()
             self.wfile.write(b'Authorization received. Return to uachat.')
 
-    with http.server.ThreadingHTTPServer(('127.0.0.1', 1455), Callback) as server:
+    with http.server.ThreadingHTTPServer(('127.0.0.1', port), Callback) as server:
+        redirect = f'http://localhost:{server.server_port}/auth/callback'
         server.timeout = 1
         url = ISSUER + '/oauth/authorize?' + urllib.parse.urlencode({
-            'response_type': 'code', 'client_id': CLIENT_ID, 'redirect_uri': REDIRECT,
+            'response_type': 'code', 'client_id': CLIENT_ID, 'redirect_uri': redirect,
             'scope': 'openid profile email offline_access', 'state': state,
             'code_challenge': challenge, 'code_challenge_method': 'S256',
             'id_token_add_organizations': 'true', 'codex_cli_simplified_flow': 'true',
             'originator': 'codex_cli_rs'})
-        print('Open this URL in your browser (Ctrl-C cancels):\n' + url, flush=True)
-        webbrowser.open(url)
+        ui.browser(url, 'Codex / ChatGPT')
         deadline = time.monotonic() + 900
         while not result and time.monotonic() < deadline:
             server.handle_request()
@@ -153,16 +155,16 @@ def browser_login() -> dict:
         raise ValueError('OAuth login timed out')
     if result.get('error'):
         raise ValueError(result['error'])
-    return _exchange(result['code'], verifier, REDIRECT)
+    return _exchange(result['code'], verifier, redirect)
 
 
-def device_login() -> dict:
+def device_login(ui=None) -> dict:
+    ui = ui or AuthUI()
     device = _post('/api/accounts/deviceauth/usercode', {'client_id': CLIENT_ID})
     code = device.get('user_code') or device.get('usercode')
     if not code or not device.get('device_auth_id'):
         raise ValueError('invalid device authorization response')
-    print(f'Open {ISSUER}/codex/device\nEnter code: {code}\n'
-          'Only continue if you initiated this login. Ctrl-C cancels.', flush=True)
+    ui.device(ISSUER+'/codex/device', code)
     interval = max(1, min(60, int(device.get('interval') or 5)))
     deadline = time.monotonic() + 900
     while time.monotonic() < deadline:
@@ -179,22 +181,39 @@ def device_login() -> dict:
     raise ValueError('device login timed out after 15 minutes')
 
 
-def main(argv=None) -> int:
+def main(argv=None, theme=None) -> int:
     parser = argparse.ArgumentParser(prog='uachat auth')
-    parser.add_argument('action', choices=['login', 'logout', 'status'])
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if raw[:1] == ['rotation'] and len(raw)>1 and raw[1] in ('on','off'):
+        raw = [raw[0],'--rotate',raw[1]]+raw[2:]
+    parser.add_argument('action', choices=['login', 'logout', 'status', 'usage', 'accounts', 'use', 'rotation'])
     parser.add_argument('provider', nargs='?', default='openai-codex', choices=['openai-codex', 'google-antigravity'])
+    parser.add_argument('--account', help='saved account email or unambiguous id')
+    parser.add_argument('--all', action='store_true', help='all accounts (usage/logout)')
+    parser.add_argument('--refresh', action='store_true', help='force fresh usage data')
+    parser.add_argument('--cached', action='store_true', help='allow recent quota cache')
+    parser.add_argument('--rotate', choices=['on','off'])
+    parser.add_argument('--theme', help='login/usage colour theme')
+    parser.add_argument('--color', choices=['auto','always','never'], default='auto')
+    parser.add_argument('--no-color', action='store_true')
+    parser.add_argument('--print-url', action='store_true', help='also show the full browser OAuth URL')
     parser.add_argument('--headless', action='store_true', help='device-code login (Codex) or manual callback (Google)')
     parser.add_argument('--import-existing', action='store_true', help='explicitly import from Codex CLI or OMP')
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw)
     path = os.path.expanduser(codex_auth.CODEX_AUTH_PATH)
+    ui = AuthUI(theme=theme, color='never' if args.no_color else args.color, print_url=args.print_url, theme_name=args.theme)
     try:
         if args.provider == 'google-antigravity':
+            if args.action not in ('login','logout','status'):
+                raise ValueError('usage/rotation аккаунтов Google пока не реализованы; эти команды поддерживают Codex')
             import antigravity
             if args.import_existing:
                 raise ValueError('external import is only supported for Codex')
-            antigravity.auth(args.action, args.headless)
+            antigravity.auth(args.action, args.headless, ui=ui)
             return 0
+        import codex_pool
         if args.action == 'login':
+            codex_pool.adopt_legacy()
             if args.import_existing:
                 found = codex_auth._omp_accounts() + codex_auth._codex_accounts()
                 live = sorted((a for a in found if a['valid']), key=lambda a: a['expires_ms'], reverse=True)
@@ -205,33 +224,51 @@ def main(argv=None) -> int:
                 with _lock(path):
                     _save(response, path, {'account_id': a['account_id']})
             else:
-                response = device_login() if args.headless else browser_login()
+                response = device_login(ui) if args.headless else browser_login(ui)
                 with _lock(path):
                     _save(response, path)
-            print('Logged in to openai-codex.')
-        elif args.action == 'logout':
-            with _lock(path):
-                if os.path.exists(path):
-                    os.unlink(path)
-            codex_auth._ACCOUNTS = None
-            print('Logged out of uachat; external credentials are untouched.')
-        else:
             payload = codex_auth._read_json(path)
+            ui.line('Авторизация получена · сохраняю аккаунт…')
+            key = codex_pool.register(payload)
+            ui.line('Готово · '+str(payload.get('email') or key[:8])+' · аккаунт сохранён.', 'ok')
+            ui.line('Повторный login добавляет аккаунт, а не удаляет предыдущий.')
+            rotation = codex_pool.entries()[0].get('auto_rotate',True)
+            ui.line('Авторотация Codex: '+('включена' if rotation else 'выключена')+' · /rotation on|off')
+        elif args.action == 'logout':
+            codex_pool.remove(args.account, all_accounts=args.all)
+            ui.line('Аккаунт удалён из uachat. Внешние credentials не изменены.', 'ok')
+        elif args.action == 'usage':
+            if not codex_pool.show_usage(ui,all_accounts=args.all,refresh=args.refresh or not args.cached,selector=args.account):
+                return 1
+        elif args.action == 'accounts':
+            codex_pool.show_accounts(ui)
+        elif args.action == 'use':
+            if not args.account: raise ValueError('используй auth use --account EMAIL_OR_ID')
+            key = codex_pool.choose(args.account)
+            ui.line('Активный аккаунт: '+key[:8], 'ok')
+        elif args.action == 'rotation':
+            if args.rotate: codex_pool.set_rotation(args.rotate == 'on')
+            codex_pool.show_accounts(ui)
+        else:
+            selected_path = codex_pool.account_path(codex_pool.resolve(args.account)) if args.account else path
+            payload = codex_auth._read_json(selected_path)
             if not isinstance(payload, dict):
-                print('openai-codex: not logged in')
+                ui.line('Codex: вход не выполнен. login openai-codex', 'warn')
             else:
                 tokens = payload.get('tokens') if isinstance(payload.get('tokens'), dict) else {}
                 expiry = positive_int(payload.get('expires_ms')) or codex_auth._expires_from_token(tokens.get('access_token'))
                 state = 'valid' if expiry and expiry > time.time() * 1000 else 'expired (refresh on next turn)'
-                print(f"openai-codex: {state} · {safe_text(payload.get('email') or 'account')}")
+                ui.line(f"Codex: {state} · {safe_text(payload.get('email') or 'account')}", "ok" if state == "valid" else "warn")
         return 0
     except KeyboardInterrupt:
-        print('\nAuthorization cancelled.')
+        ui.line('Вход отменён.', 'warn')
         return 130
     except urllib.error.HTTPError as error:
         error.close()
-        print(f'OAuth HTTP {error.code}; try login again (device login may need enabling in ChatGPT settings).')
+        ui.line(f'OAuth HTTP {error.code}; повтори вход. Для device login может потребоваться разрешение в настройках ChatGPT.', 'error')
         return 1
     except (OSError, ValueError, KeyError) as error:
-        print(f'Authorization failed: {safe_text(error)}')
+        if isinstance(error,OSError) and getattr(error,'errno',None) == 98:
+            ui.line('Порт входа уже занят. Отмени предыдущий login (Ctrl-C) или используй --headless.', 'warn')
+        ui.line(f'Ошибка авторизации: {safe_text(error)}', 'error')
         return 1

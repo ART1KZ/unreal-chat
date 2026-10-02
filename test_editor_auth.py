@@ -134,21 +134,21 @@ class AuthTests(unittest.TestCase):
             params = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
             self.assertEqual(params['code_challenge_method'], ['S256'])
             def callback():
-                bad = native_auth.REDIRECT + '?state=wrong&code=bad'
+                bad = params['redirect_uri'][0] + '?state=wrong&code=bad'
                 try:
                     urllib.request.urlopen(bad, timeout=5)
                 except urllib.error.HTTPError as error:
                     self.assertEqual(error.code, 400)
                     error.close()
-                good = native_auth.REDIRECT + '?' + urllib.parse.urlencode({'state':params['state'][0], 'code':'test-code'})
+                good = params['redirect_uri'][0] + '?' + urllib.parse.urlencode({'state':params['state'][0], 'code':'test-code'})
                 with urllib.request.urlopen(good,timeout=5):
                     pass
             t = threading.Thread(target=callback)
             t.start()
             threads.append(t)
-            return True
-        with patch('native_auth.webbrowser.open', side_effect=open_browser), patch('native_auth._exchange', return_value={'access_token':'test'}) as exchange, patch('sys.stdout', new_callable=io.StringIO):
-            self.assertEqual(native_auth.browser_login(), {'access_token':'test'})
+            return "test browser"
+        with patch('auth_ui.open_browser', side_effect=open_browser), patch('native_auth._exchange', return_value={'access_token':'test'}) as exchange, patch('sys.stdout', new_callable=io.StringIO):
+            self.assertEqual(native_auth.browser_login(port=0), {'access_token':'test'})
             self.assertEqual(exchange.call_args.args[0], 'test-code')
             self.assertGreaterEqual(len(exchange.call_args.args[1]), 43)
         for t in threads:

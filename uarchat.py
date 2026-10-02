@@ -61,7 +61,7 @@ def request_shutdown(signum, frame):
     raise ShutdownRequested(signum)
 
 
-VERSION = "0.4"
+VERSION = "0.5"
 
 CONFIG_PATH = os.path.expanduser("~/.config/uachat/env")
 HISTORY_PATH = os.path.expanduser("~/.config/uachat/history")
@@ -129,10 +129,13 @@ THEMES: dict[str, dict[str, str]] = {
 }
 
 COMMANDS = (
-    "/status", "/context", "/login", "/logout", "/auth", "/help", "/new", "/sessions", "/resume", "/session",
+    "/usage", "/accounts", "/rotation", "/status", "/context", "/login", "/logout", "/auth", "/help", "/new", "/sessions", "/resume", "/session",
     "/provider", "/model", "/thinking", "/theme", "/themes", "/rtk", "/copy", "/dump", "/repair", "/exit", "/quit",
 )
 COMMAND_HELP = {
+    "/usage": "Codex subscription quotas and resets",
+    "/accounts": "list saved Codex accounts",
+    "/rotation": "automatic account rotation on/off",
     "/status": "current model, effort and measured context",
     "/context": "set context limit in tokens, or auto",
     "/login": "OAuth login (--headless supported)",
@@ -902,7 +905,8 @@ class Renderer:
             self.error(f"exit code {exit_code}")
     def error(self, message: str) -> None:
         message = safe_text(message)
-        self.last_error = message
+        if not self.last_error or not message.startswith("runner exited with code"):
+            self.last_error = message
         print("  " + self.theme.paint("✖ ", "error") + self.theme.paint(message, "error"))
 
     def end_turn(self, code: int) -> None:
@@ -1229,6 +1233,13 @@ def status_line(theme, state, metrics, provider, session, context_limit=None):
     parts = [safe_text(state.get("model") or "model default"),
              f"{thinking_glyph(effort)} {effort}", metrics.context_label(limit),
              safe_text(provider), "s:"+safe_text(session)]
+    if provider == "openai-codex":
+        if state.get("quota_usage") is not None:
+            import codex_pool
+            quota = codex_pool.quota_label(state["quota_usage"],state.get("model", ""))
+            if state.get("quota_error_model") == state.get("model"):
+                quota = "quota: лимит достигнут"
+            parts.insert(3,quota)
     if metrics.output_tokens:
         parts.append("out "+tokens_label(metrics.output_tokens))
     if metrics.cached_tokens:
@@ -1240,6 +1251,9 @@ def status_line(theme, state, metrics, provider, session, context_limit=None):
 
 
 HELP = """commands:
+  /usage [--all] [--cached]  subscription quotas, reset times, credits (Codex)
+  /accounts [use EMAIL_OR_ID] saved Codex accounts / switch account
+  /rotation on|off automatic rotation between saved Codex accounts
   /status          current model, effort, context and usage
   /context [tokens|auto]   explicit context limit (no guessed percentages)
   /login [provider] [--headless]   standalone Codex OAuth
@@ -1289,7 +1303,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     raw = list(sys.argv[1:] if argv is None else argv)
-    if raw and raw[0] in ("login", "logout", "auth"):
+    # Common appearance flags also work before auth subcommands.
+    prefix, offset = [], 0
+    while offset < len(raw):
+        if raw[offset] == "--no-color":
+            prefix.append(raw[offset]); offset += 1
+        elif raw[offset] in ("--color", "--theme") and offset+1 < len(raw):
+            prefix.extend(raw[offset:offset+2]); offset += 2
+        else:
+            break
+    if offset and offset < len(raw) and raw[offset] in ("login", "logout", "auth", "usage"):
+        raw = raw[offset:]+prefix
+    if raw and raw[0] in ("login", "logout", "auth", "usage"):
         import native_auth
         action = raw.pop(0)
         if action == "auth":
@@ -1380,6 +1405,9 @@ def main(argv: list[str] | None = None) -> int:
             bridge = None
         os.environ.pop("OPENAI_CODEX_AUTH_FILE", None)
         if explicit_base_url:
+            if provider == "openai-codex":
+                import codex_auth
+                os.environ["OPENAI_CODEX_AUTH_FILE"] = os.path.expanduser(codex_auth.CODEX_AUTH_PATH)
             os.environ["UNREAL_HARNESS_LLM_PROVIDER"] = provider_spec(provider).get("harness", provider)
             os.environ["UNREAL_HARNESS_LLM_BASE_URL"] = explicit_base_url
             return explicit_base_url
@@ -1413,6 +1441,10 @@ def main(argv: list[str] | None = None) -> int:
         else:
             os.environ.pop("UNREAL_HARNESS_LLM_API_KEY", None)
         # OAuth providers (codex/ChatGPT) hand the harness an auth file instead of a key.
+        if provider == "openai-codex":
+            import codex_auth
+            os.environ["OPENAI_CODEX_AUTH_FILE"] = os.path.expanduser(codex_auth.CODEX_AUTH_PATH)
+            return spec.get("base_url", "")
         if providers_module is not None:
             try:
                 for name, value in providers_module.auth_env(provider).items():
@@ -1426,6 +1458,42 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError(f"no API key configured for {provider}")
         if not explicit_base_url and providers_module is not None and providers_module.is_oauth(provider):
             os.environ.update(providers_module.auth_env(provider))
+
+    def sync_auth_status():
+        if provider != "openai-codex":
+            return
+        import codex_pool
+        state["quota_usage"] = None
+        state["quota_error_model"] = None
+        if not os.path.exists(codex_pool.paths()[1]):
+            return
+        try:
+            data = codex_pool._read()  # private atomic cache, no network/migration
+            key = data["sessions"].get(session_id) or data.get("active")
+            state["quota_usage"] = data["accounts"].get(key,{}).get("usage",{})
+        except (OSError,ValueError):
+            pass
+
+    def execute_turn(prompt, renderer, spinner):
+        if provider != "openai-codex" or explicit_base_url:
+            refresh_auth()
+            return run_turn(args.binary, workspace, build_request(prompt), renderer, spinner)
+        import codex_pool
+        def selected(info):
+            state["quota_usage"] = info["usage"]
+            state["quota_error_model"] = None
+            if info["rotated"]:
+                print(theme.paint("  Codex: аккаунт переключён на "+safe_text(info["email"]), "ok"))
+            if info["usage_error"]:
+                print(theme.paint("  Codex usage недоступен ("+info["usage_error"]+"); квота не считается исчерпанной", "warn"))
+        print(theme.paint("  Codex: проверяю квоты и готовлю аккаунт…", "dim"))
+        with codex_pool.turn(session_id,state["model"],on_select=selected) as (snapshot,info):
+            os.environ["OPENAI_CODEX_AUTH_FILE"] = snapshot
+            code = run_turn(args.binary,workspace,build_request(prompt),renderer,spinner)
+            if code not in (0,130) and codex_pool.note_error(info["key"],renderer.last_error):
+                state["quota_error_model"] = state["model"]
+                print(theme.paint("  Лимит Codex достигнут. Следующий ход выберет доступный аккаунт; текущий ход НЕ повторяется автоматически.","warn"))
+            return code
 
     def prefetch_catalogue():
         # Metadata can arrive without blocking the editor or changing its model.
@@ -1458,12 +1526,12 @@ def main(argv: list[str] | None = None) -> int:
             renderer = Renderer(theme, model=model, thinking=thinking)
             spinner = Spinner(theme, spinner_on, footer=footer)
             try:
-                refresh_auth()
+                return execute_turn(args.prompt,renderer,spinner)
             except Exception as error:
                 print(theme.paint(str(error), "error"))
                 return 1
-            return run_turn(args.binary, workspace, build_request(args.prompt), renderer, spinner)
 
+        sync_auth_status()
         footer.start()
         prefetch_catalogue()
         print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
@@ -1516,12 +1584,23 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             if prompt in ("/exit", "/quit"):
                 break
-            if prompt.split()[0] in ("/login", "/logout", "/auth"):
+            if prompt.split()[0] in ("/login", "/logout", "/auth", "/usage", "/accounts", "/rotation"):
                 import native_auth
                 import shlex
                 try:
                     parts = shlex.split(prompt)
                     action = parts.pop(0)[1:]
+                    if action == "auth" and parts and parts[0] in ("accounts", "use", "rotation", "usage", "status"):
+                        native_auth.main(parts,theme=theme)
+                        sync_auth_status()
+                        continue
+                    if action in ("accounts", "rotation"):
+                        if action == "accounts" and len(parts)==2 and parts[0] == "use":
+                            native_auth.main(["use","--account",parts[1]],theme=theme)
+                        else:
+                            native_auth.main([action]+parts, theme=theme)
+                        sync_auth_status()
+                        continue
                     if not parts or parts[0].startswith("--"):
                         if providers_module is not None and providers_module.is_oauth(provider):
                             parts.insert(0, provider)
@@ -1531,7 +1610,15 @@ def main(argv: list[str] | None = None) -> int:
                         elif action == "logout":
                             print("specify an OAuth provider: /logout openai-codex or google-antigravity")
                             continue
-                    native_auth.main(["status" if action == "auth" else action] + parts)
+                    if action in ("auth", "usage") and parts and parts[0] == "openai-codex" and not any(flag in parts for flag in ("--all", "--account")):
+                        import codex_pool
+                        if os.path.exists(codex_pool.paths()[1]):
+                            data = codex_pool._read()
+                            selected = data["sessions"].get(session_id)
+                            if selected in data["accounts"]:
+                                parts.extend(["--account",selected])
+                    native_auth.main(["status" if action == "auth" else action] + parts, theme=theme)
+                    sync_auth_status()
                 except (ValueError, SystemExit) as error:
                     if isinstance(error, ValueError):
                         print(theme.paint(str(error), "error"))
@@ -1875,11 +1962,10 @@ def main(argv: list[str] | None = None) -> int:
             renderer = Renderer(theme, model=state.get("model", ""), thinking=state.get("thinking", ""), on_usage=metrics.observe)
             spinner = Spinner(theme, spinner_on, footer=footer)
             try:
-                refresh_auth()
+                code = execute_turn(prompt,renderer,spinner)
             except Exception as error:
                 print(theme.paint(str(error), "error"))
                 continue
-            code = run_turn(args.binary, workspace, build_request(prompt), renderer, spinner)
             next_draft = getattr(renderer, "pending_input", "")
             metrics.elapsed = time.monotonic() - renderer.started_at
             footer.draw()

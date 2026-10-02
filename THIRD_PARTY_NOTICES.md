@@ -34,3 +34,7 @@ SOFTWARE.
 Codex OAuth protocol reference: [openai/codex](https://github.com/openai/codex),
 `codex-rs/login/src/{server,device_code_auth}.rs`. `native_auth.py` is an
 independent Python implementation; no Rust source is included.
+
+Codex quota protocol reference: `codex-rs/backend-client/src/client/rate_limit_resets.rs`
+and the backend OpenAPI rate-limit status/window models. `codex_pool.py` is an
+independent stdlib Python implementation of that protocol.

@@ -16,7 +16,7 @@ import urllib.parse
 import urllib.request
 from secure_http import urlopen as secure_urlopen
 import uuid
-import webbrowser
+from auth_ui import AuthUI
 
 import codex_auth
 from native_auth import _lock
@@ -112,7 +112,8 @@ def credentials(force=False):
         return data
 
 
-def auth(action, headless=False):
+def auth(action, headless=False, ui=None):
+    ui = ui or AuthUI()
     path = os.path.expanduser(AUTH_PATH)
     if action == 'status':
         data = codex_auth._read_json(path)
@@ -160,8 +161,7 @@ def auth(action, headless=False):
                     result['code'] = values.get('code',[''])[0]
         with http.server.ThreadingHTTPServer(('127.0.0.1',51121),Callback) as server:
             server.timeout = 1
-            print('Open this URL in a browser:\n'+url,flush=True)
-            webbrowser.open(url)
+            ui.browser(url, 'Google Antigravity')
             deadline = time.monotonic()+900
             while not result and time.monotonic()<deadline:
                 server.handle_request()

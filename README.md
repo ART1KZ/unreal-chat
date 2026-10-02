@@ -367,3 +367,92 @@ This hardening does **not** remove Antigravity's experimental label: live OAuth,
 regional availability and provider-specific signature/wire compatibility still
 require validation against an authorized account. Offline tests are not proof
 of Google availability or production certification.
+
+## Codex login, subscription usage and account rotation (0.5)
+
+Login now uses the selected theme. WSL opens the **Windows** default browser
+via PowerShell (or wslview), never the unsupported Linux gio path. Browser
+launcher output is suppressed and the OAuth query is shown as a compact
+clickable link in interactive terminals. If launch fails, the full manual URL
+and headless instructions are shown. Appearance flags work before/after the
+command; `--print-url` explicitly prints the complete browser OAuth URL.
+
+```sh
+uachat login openai-codex
+uachat --color always login openai-codex --theme nord
+uachat login openai-codex --headless
+uachat login openai-codex --print-url
+```
+
+If port 1455 is occupied, cancel the previous login rather than killing an
+unknown listener, or use headless device login. WSL browser login relies on
+Windows-to-WSL localhost forwarding; device login does not require it.
+
+### Subscription limits, not context tokens
+
+```sh
+uachat usage                           # refresh the active Codex account
+uachat usage --all                     # all saved Codex accounts
+uachat usage --cached                  # allow a recent 60-second cache
+uachat auth accounts
+uachat auth use --account EMAIL_OR_ID
+uachat auth rotation on
+uachat auth rotation off
+uachat logout openai-codex --account EMAIL_OR_ID
+uachat logout openai-codex --all
+```
+
+In chat: `/usage [--all] [--cached]`, `/accounts`, `/accounts use EMAIL_OR_ID`,
+`/rotation on|off`, `/auth use --account EMAIL_OR_ID`. These management commands
+currently support **Codex only**; Google usage/rotation remains unimplemented
+and is reported explicitly rather than returning invented data.
+
+Usage reads the official WHAM quota response: plan, primary/secondary window
+percentages, additional quota groups, reset times, and credit balance if present.
+Window labels come from server durations (not hardcoded 5h/7d assumptions).
+The footer can show remaining subscription quota separately from `ctx`.
+An HTTP 403/network error is **unknown usage**, not 100% used. `/usage` returns
+nonzero if it could not obtain quota data for any requested account.
+
+### Multiple accounts and safe rotation
+
+Repeated login adds/updates an account rather than replacing all saved
+credentials. The initial existing **uachat** auth file is migrated once;
+external OMP/Codex stores are never consulted implicitly. Account credentials
+are private files under `~/.config/uachat/codex/accounts/`; `accounts.json`
+contains selection state and quota cache. All are mode 0600.
+
+Autorotation defaults **on**. Before launching a Codex turn, the client checks
+cached/fresh applicable quota and switches a depleted account to an available
+saved sibling. Selection is sticky per session. Expired quota windows invalidate
+the cache so new limits/reset allowances are read. An explicit backend
+`allowed: true` is honored even when a displayed window reaches 100%.
+No quota resets or credits are automatically redeemed/purchased. Normal model
+requests can still consume credits according to backend policy; this feature
+is not a spending cap.
+
+There must be at least two authorized accounts to switch. If all known accounts
+are exhausted, the turn is not started. Turning rotation off pins selection
+rather than trying other accounts. Generic HTTP 429, country/security 403 and
+transient network errors do not themselves trigger rotation.
+
+If a quota error occurs **during** a turn, the account is marked for a fresh
+quota check on the next request. The already-running agent prompt is **not
+replayed automatically**, because that could execute Bash/tools twice. Continue
+or retry explicitly after checking what the previous turn already did.
+
+Each runner gets its own temporary 0600 auth snapshot; changing the active
+account cannot overwrite a different running turn's credentials. Same-account
+turns/refreshes are serialized with account leases. A runner's token refresh is
+saved back to the matching account, and the snapshot is deleted on exit. Orphan
+snapshots are cleaned after their owning PID is gone. Independent third-party
+clients sharing manually imported refresh tokens are outside these locks;
+prefer a native login rather than concurrent refresh from an imported source.
+
+**Validation:** quota endpoint/schema has been checked with a real saved token
+(read-only HTTP 200, no token refresh or credential changes). WSL PowerShell
+interop and local OAuth callback/PKCE are tested. Rotation and no-replay behavior
+have regression tests, including runner integration. A complete fresh browser
+OAuth flow still requires the user's consent, and live cross-account replay of
+provider-encrypted history has not been certified. Do not claim Google support
+or universal provider compatibility from these tests.

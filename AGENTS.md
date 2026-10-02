@@ -34,7 +34,7 @@ repo directory).
 | `gh` CLI | **not installed in WSL** — use `cmd.exe /c gh …` or `powershell.exe -NoProfile -Command gh …` (authenticated as ART1KZ) |
 
 Environment: Windows 10 x64 host, WSL2 Ubuntu, Python 3.14.4. Client version
-string: `uachat 0.4` (`VERSION` in `uarchat.py`).
+string: `uachat 0.5` (`VERSION` in `uarchat.py`).
 
 ## 3. Architecture / data flow
 
@@ -249,3 +249,36 @@ wrapped as `{"type":"item","data":{"Item":{…}}}`. `Item.Kind`:
   `bash tty-test.sh`, `bash surface-test.sh`, `./check-secrets.sh`.
 - Antigravity remains EXPERIMENTAL; do not claim live auth/regional compatibility
   is verified or use hardening tests as production certification.
+
+## 13. 0.5 Codex auth UX / quotas / account pool
+
+- `auth_ui.py`: themed login/usage UI and quiet browser opening. WSL routes to
+  powershell.exe (encoded command, URL passed as base64 DATA, no shell) or
+  wslview; no gio fallback. Short OSC8 link on TTY, full manual URL on failure,
+  explicit `--print-url`. Native auth accepts --color/--no-color/--theme and
+  common appearance flags work before the auth command too.
+- `codex_pool.py`: own multi-account files + 0600 accounts.json, one-time own
+  legacy-file migration, selection/account use/logout, session stickiness,
+  between-turn rotation (default on), read-only WHAM usage/credits/reset display.
+  Endpoint https://chatgpt.com/backend-api/wham/usage; Auth bearer + account ID.
+  Durations/reset timestamps from server. Cache 60s, invalidated by window reset.
+  Additional groups affect selection only when matching the current model.
+  Explicit backend allowed=True wins over percentage-based blocking.
+- Each Codex runner uses an independent temporary auth snapshot under an account
+  lease; concurrent same-account refreshes/turns serialize. Save runner token
+  refresh back only if account/user identity match. Cleanup snapshots, including
+  orphan owner PIDs. The compatibility auth.json is not a live shared runner
+  credential. Default turn auth setup no longer refreshes that shared file.
+- Commands: CLI `usage`, `auth accounts`, `auth use --account`,
+  `auth rotation on|off`, logout --account/--all; REPL /usage, /accounts [use ID],
+  /rotation. Google quota/rotation commands explicitly report unsupported.
+- Never replay a failed turn automatically. Preserve original model error
+  instead of overwriting it with "runner exited" so typed quota errors can mark
+  a cooldown/fresh check. Generic 429/403 do not mark quota exhaustion.
+- Browser tests use ephemeral ports, NEVER occupy the user's real port 1455.
+  WSL interop was actually probed; real WHAM read-only GET returned HTTP 200 and
+  valid schema. No credentials mutated during that probe. Fresh browser OAuth
+  consent and live cross-account encrypted-history compatibility remain to be
+  verified by an authorized user. Don't overclaim those.
+- `test_auth_pool.py` adds auth/usage/rotation/no-replay isolation coverage.
+  `bash test.sh` now runs 58 tests plus secret scan; tty-test remains 11 checks.
