@@ -44,6 +44,7 @@ uachat --list                            # recent sessions with their first prom
 uachat --themes | --theme nord           # colour themes
 uachat -t max -m deepseek-v4.1-flash     # thinking level and model overrides
 uachat --color always                    # force ANSI colours (auto|always|never)
+uachat --context-window 128000           # explicit limit; use your actual model limit
 ```
 
 In-chat commands (TAB completes commands and their arguments, ↑/↓ walk history):
@@ -54,6 +55,8 @@ In-chat commands (TAB completes commands and their arguments, ↑/↓ walk histo
 | `/sessions` | list recent sessions with their first prompt |
 | `/resume <name>` | switch to an existing session |
 | `/session` | print the current session id |
+| `/status` | show current model, thinking, context and session usage |
+| `/context [tokens\|auto]` | set an explicit context limit or use catalogue metadata |
 | `/provider [id]` | show or switch the provider (opencode-go, openrouter, openai, fireworks, ollama); picks a matching model automatically |
 | `/model [id]` | show or switch the model (`refresh` re-reads the provider) |
 | `/thinking [lvl]` | show or switch the reasoning effort (`next` cycles) |
@@ -88,7 +91,7 @@ Keys:
 - Assistant message header shows the exact model name and reasoning effort: `⏺ deepseek-v4.1-flash (◉ max)` or `⏺ gpt-5.6-sol (◉ max)` with a wrapping gutter.
 - Resuming a session (via `-s` or `/resume`) automatically replays the past conversation turns so you see the history immediately.
 - All Bash commands executed by the agent automatically run through `rtk-shell` (Rust Token Killer, v0.50.0), cutting up to 60-90% of token consumption from command outputs (`git status`, `ls`, `grep`, `pytest`, `npm test`, etc.). Check stats with `/rtk`.
-- Per-turn footer: `╵ in N · cached N · out N (~M tok/s) · 1.7s`; the banner shows `model · ◉ max` (thinking glyphs ○ ◔ ◑ ◒ ◕ ◉).
+- Per-turn usage summary: `╵ in N · cached N · out N (~M tok/s) · 1.7s`; the current model/effort live in the pinned bottom status bar, not a stale startup banner.
   `UACHAT_NOTIFY=off`).
 - Six 256-colour themes: `midnight`, `nord`, `gruvbox`, `neon`, `paper`, `mono`.
   Colour is on when stdout is a terminal; `--color always|never`,
@@ -300,3 +303,67 @@ bracketed-paste support cannot reliably distinguish pasted Enter from typed
 Enter; use a terminal with bracketed-paste support for safe multiline paste.
 
 Offline regression tests: `python3 -m unittest -v test_editor_auth test_antigravity`.
+
+
+## Bottom status bar (0.4)
+
+Interactive TTY mode reserves the terminal's **last physical row** for current
+model, reasoning effort, context occupancy, provider, session, generated/cached
+token totals and last-turn duration (space permitting). It refreshes while
+editing and waiting for the runner, survives resize and works with `--no-color`.
+The startup header contains only version/workspace/help, not mutable settings.
+Model catalogue metadata is prefetched in the background without changing your
+model or blocking the editor.
+Small terminals under four rows temporarily disable the reserved bar. No
+alternate screen is used; ordinary scrollback remains available. Exit, errors,
+Ctrl-C and SIGTERM/SIGHUP restore the terminal and its scroll region.
+
+Context is **approximate**, marked `~`: the last reported model input plus its
+output. It is NOT cumulative billing usage, and cache hits are NOT subtracted
+from occupied context. The runner provides no live tokenizer/compaction API.
+A percentage requires the real model limit from catalogue metadata; otherwise
+`ctx ?` / `ctx ~N / ?` is displayed rather than inventing a limit.
+
+```text
+/status                 show the complete status without terminal truncation
+/context 128000         example explicit limit — use your model's actual limit
+/context auto           remove the override and use catalogue metadata
+```
+
+An explicit limit can also be set with `--context-window TOKENS` or
+`UACHAT_CONTEXT_WINDOW` in the environment/private config. The override applies
+until cleared; when changing to a model with a different limit, change it or
+use `auto`. No monetary cost is estimated without reliable pricing metadata.
+
+### Reliability and privacy
+
+- `/model` and `/thinking` update the actual request, including after `-m`/`-t`.
+  Incomplete catalogues no longer silently replace a configured model.
+- Typing/pasting during a running turn is preserved as a **reviewable next
+  draft**, not dropped or automatically submitted. Esc/Ctrl-C still interrupt.
+- Clipboard paste is bounded at 8 MiB. Huge submissions have a bounded terminal
+  preview; the full draft is sent/persisted. Visual layout stores row spans,
+  not a per-character cursor map. History is bounded to 500 entries / 16 MiB.
+- History/config/transcript files are private and atomically written. Concurrent
+  history/config writers merge under file locks. Readline cannot overwrite the
+  raw editor's JSON multiline history.
+- Session replay keeps only the last five turns in memory; `/dump` streams the
+  full session. Historical answers are marked `agent · replay`, not falsely
+  attributed to the currently selected model.
+- Model/tool text cannot execute ANSI/OSC terminal commands. Notifications and
+  status-control sequences are suppressed in pipes. Duplicate response IDs and
+  malformed JSON event shapes are handled defensively.
+- The OpenCode bridge binds loopback on port 0, requires a random local bearer
+  key, rejects unknown routes/oversized bodies and forwards streaming bytes
+  without waiting for a full 8 KiB buffer. Telemetry is isolated per client.
+  Credential-bearing HTTP requests refuse redirects to a different origin.
+- Tests use temporary HOME/state directories and local mock services; they do
+  not modify a user's credentials/config/sessions. `bash test.sh` runs the full
+  regression suite, `bash tty-test.sh` tests the command UI, and
+  `bash surface-test.sh` checks non-TTY behavior. Real-runner tests are skipped
+  if the binary is not installed.
+
+This hardening does **not** remove Antigravity's experimental label: live OAuth,
+regional availability and provider-specific signature/wire compatibility still
+require validation against an authorized account. Offline tests are not proof
+of Google availability or production certification.

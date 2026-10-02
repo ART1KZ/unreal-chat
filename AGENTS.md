@@ -34,7 +34,7 @@ repo directory).
 | `gh` CLI | **not installed in WSL** — use `cmd.exe /c gh …` or `powershell.exe -NoProfile -Command gh …` (authenticated as ART1KZ) |
 
 Environment: Windows 10 x64 host, WSL2 Ubuntu, Python 3.14.4. Client version
-string: `uachat 0.3` (`VERSION` in `uarchat.py`).
+string: `uachat 0.4` (`VERSION` in `uarchat.py`).
 
 ## 3. Architecture / data flow
 
@@ -138,7 +138,7 @@ wrapped as `{"type":"item","data":{"Item":{…}}}`. `Item.Kind`:
 
 | id | harness | auth | notes |
 | --- | --- | --- | --- |
-| `opencode-go` | openai | API key from omp store | goes through `bridge.py` |
+| `opencode-go` | openai | API key from own config/env | goes through `bridge.py` |
 | `openai-codex` | openai-codex | ChatGPT OAuth (codex_auth.py) | token at `~/.config/uachat/codex/auth.json` (0600) |
 | `openrouter` | openrouter | API key | direct |
 | `openai`, `fireworks` | openai/fireworks | API key | key not configured on this machine |
@@ -215,3 +215,37 @@ wrapped as `{"type":"item","data":{"Item":{…}}}`. `Item.Kind`:
 - Google OAuth application ID/secret are private config, NOT bundled constants:
   `UACHAT_ANTIGRAVITY_CLIENT_ID` / `UACHAT_ANTIGRAVITY_CLIENT_SECRET`. Both
   generated Windows shims forward them. Secret scanner also checks Google OAuth.
+
+
+## 12. 0.4 client hardening / pinned footer
+
+- `terminal_ui.py`: safe text, JSON event shape normalization, display-column
+  wrapping, SessionMetrics, TerminalFooter. Uses a protected scroll region to
+  reserve the last physical terminal row; always restores full region on exit.
+  Tiny (<4 row) terminals disable the bar. No UI thread/alternate screen.
+- Footer reads current mutable request state; CLI flags no longer override later
+  slash commands. Startup does not auto-replace models using stale catalogues.
+  Catalogue metadata is prefetched in background; idle redraw picks it up.
+- Context = last model input + output, APPROXIMATE (`~`), never cumulative usage
+  and never minus cache. Denominator from model metadata or explicit
+  `--context-window` / `UACHAT_CONTEXT_WINDOW` / `/context`. Unknown limit stays
+  unknown. `/status` prints untruncated status; `/context auto` clears override.
+- `configio.py`: shared private atomic writes and process locks. Editor history
+  merges concurrent writers, capped 500 entries / 16 MiB; readline is disabled
+  when the raw editor owns history. Paste cap 8 MiB, bounded submit preview,
+  sparse visual row spans (no per-character dict), idle resize redraw.
+- InterruptWatcher preserves typed/pasted text as the next editable draft,
+  never auto-submits it. Raw INPUT preserves original output newline processing.
+  SIGTERM/SIGHUP unwind the editor/runner/footer through ShutdownRequested.
+- Replay uses a bounded deque; full /dump streams the disk session into a 0600
+  atomic Markdown file. Replay model/effort are not inferred from current config.
+- OpenCode bridge uses port-0 handshake and random local bearer credential,
+  route/body validation and read1() forwarding. Stream telemetry is per client.
+- `secure_http.py`: bearer/POST redirects across origins are rejected in all
+  provider transports; private debug dumps are atomic. Auth responses must
+  contain usable unexpired tokens; malformed refresh leaves old file intact.
+- Test entrypoints now isolated, never copy/edit real user's config. Full suite:
+  `bash test.sh` (39 tests including real PTYs and runner/mock roundtrips),
+  `bash tty-test.sh`, `bash surface-test.sh`, `./check-secrets.sh`.
+- Antigravity remains EXPERIMENTAL; do not claim live auth/regional compatibility
+  is verified or use hardening tests as production certification.

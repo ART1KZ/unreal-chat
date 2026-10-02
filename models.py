@@ -12,9 +12,11 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from secure_http import urlopen as secure_urlopen
 
 CONFIG_PATH = os.path.expanduser("~/.config/uachat/env")
-USER_AGENT = "uarchat/0.1"
+USER_AGENT = "uachat/0.4"
+MODEL_METADATA: dict[tuple[str, str], dict] = {}
 
 EFFORT_OPTIONS = ("low", "medium", "high", "xhigh", "max")
 
@@ -67,14 +69,23 @@ def list_models(base_url: str, api_key: str | None = None, timeout: float = 10.0
     if api_key:
         request.add_header("Authorization", f"Bearer {api_key}")
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with secure_urlopen(request, timeout=timeout) as response:
             if response.status != 200:
                 raise ModelListError(f"{url}: HTTP {response.status}")
-            payload = json.loads(response.read().decode("utf-8"))
+            raw = response.read(16*1024*1024+1)
+            if len(raw) > 16*1024*1024:
+                raise ModelListError("model catalogue exceeds 16 MiB")
+            payload = json.loads(raw.decode("utf-8"))
     except ModelListError:
         raise
     except (OSError, ValueError, UnicodeDecodeError) as error:
         raise ModelListError(f"{url}: {error}") from error
+    if isinstance(payload, dict):
+        entries = payload.get("data") or payload.get("models") or []
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict) and isinstance(entry.get("id"), str):
+                    MODEL_METADATA[(base_url.rstrip("/"), entry["id"])] = entry
     identifiers = _extract_ids(payload)
     if not identifiers:
         raise ModelListError(f"{url}: response carries no model ids")
@@ -101,6 +112,17 @@ def load_env(path: str | None = None) -> dict[str, str]:
             value = value[1:-1]
         values[name] = value
     return values
+
+
+def context_window(base_url: str, model: str) -> int | None:
+    from terminal_ui import positive_int
+    meta = MODEL_METADATA.get((base_url.rstrip("/"), model), {})
+    for field in ("context_length", "context_window", "max_context_tokens"):
+        value = positive_int(meta.get(field))
+        if value:
+            return value
+    limit = meta.get("limit")
+    return positive_int(limit.get("context")) if isinstance(limit, dict) else None
 
 
 def models_source(env: dict[str, str]) -> tuple[str, str | None]:

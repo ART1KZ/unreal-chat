@@ -145,9 +145,7 @@ def spec(provider_id: str) -> dict:
 def key_for(provider_id: str) -> str | None:
     """Resolve the provider API key from environment/uachat config only."""
     _definition(provider_id)
-    if provider_id not in _KEY_CACHE:
-        _KEY_CACHE[provider_id] = _env_key(provider_id)
-    return _KEY_CACHE[provider_id]
+    return _env_key(provider_id)
 
 
 def has_key(provider_id: str) -> bool:
@@ -234,9 +232,6 @@ def auth_state(provider_id: str) -> str:
     tokens codex_auth.accounts() reports.
     """
     definition = _definition(provider_id)
-    cached = _AUTH_STATE_CACHE.get(provider_id)
-    if cached is not None:
-        return cached
     if provider_id == "google-antigravity":
         import antigravity
         payload = antigravity.codex_auth._read_json(os.path.expanduser(antigravity.AUTH_PATH))

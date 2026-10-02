@@ -42,6 +42,8 @@ import sys
 import tempfile
 import unicodedata
 from typing import Callable
+from terminal_ui import safe_text, terminal_size
+from configio import file_lock, atomic_text
 
 try:  # POSIX only: Windows has neither module.
     import select
@@ -66,7 +68,9 @@ REVERSE = "\033[7m"
 NL = "\r\n"
 ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
+MAX_HISTORY_BYTES = 16 * 1024 * 1024
 MAX_HISTORY = 500
+MAX_PASTE_BYTES = 8 * 1024 * 1024
 DEFAULT_ROWS = 8
 SELECTED_MARKER = "❯ "
 PLAIN_MARKER = "  "
@@ -111,7 +115,7 @@ def _plain(text: str, key: str) -> str:
 
 def _char_width(char: str) -> int:
     """Terminal columns used by one character (East Asian wide = 2)."""
-    if unicodedata.combining(char):
+    if unicodedata.combining(char) or unicodedata.category(char) in ("Mn", "Me", "Cf"):
         return 0
     return 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
 
@@ -166,7 +170,9 @@ class Editor:
         suggestions: Callable[[str], list[tuple[str, str]]] | None = None,
         paint: Callable[[str, str], str] | None = None,
         max_rows: int = DEFAULT_ROWS,
+        footer=None,
     ) -> None:
+        self.footer = footer
         self.history_path = history_path
         self.suggestions = suggestions or (lambda text: [])
         self.paint = paint or _plain
@@ -175,6 +181,7 @@ class Editor:
         self.history: list[str] = []
         self._load_history()
 
+        self._notice = ""
         self._fd = -1
         self._buffer = ""
         self._pos = 0
@@ -188,7 +195,7 @@ class Editor:
 
     # ---------------------------------------------------------------- public
 
-    def read_line(self, prompt: str) -> str:
+    def read_line(self, prompt: str, initial_text: str = "") -> str:
         """Read one line.  Ctrl-C -> KeyboardInterrupt, Ctrl-D (empty) -> EOFError."""
         if not AVAILABLE:
             return input(prompt)
@@ -199,8 +206,9 @@ class Editor:
             return input(prompt)
 
         self._fd = fd
-        self._buffer = ""
-        self._pos = 0
+        self._buffer = safe_text(initial_text)
+        self._notice = ""
+        self._pos = len(self._buffer)
         self._sel = 0
         self._dismissed = False
         self._rows = 0
@@ -220,8 +228,16 @@ class Editor:
             self._render(prompt)
             while True:
                 kind, value = self._read_key()
+                if value == "idle" and kind == "key":
+                    if terminal_size() != getattr(self, "_last_size", None):
+                        self._render(prompt)
+                    elif self.footer:
+                        self.footer.draw(force=False)
+                    continue
                 if kind == "text":
                     self._insert(value)
+                elif value == "paste-too-large":
+                    self._notice = "Paste exceeds 8 MiB; draft unchanged"
                 elif value == "newline":
                     self._insert("\n")
                 elif value == "enter":
@@ -288,33 +304,51 @@ class Editor:
         limit = max(1, width - 1)
         prompt = _fit(prompt, min(_visible_width(prompt), max(0, limit - 1)))
         indent = min(_visible_width(prompt), max(0, limit - 1))
-        lines = [prompt]
-        positions = {}
+        self._visual_indent = indent
+        chunks = [[prompt]]
+        spans = []
+        start = 0
         col = indent
         cursor = (0, col)
+        marks = 0
         for index, char in enumerate(self._buffer):
             step = _char_width(char)
             if char != "\n" and col + step > limit:
-                lines.append(" " * indent)
+                spans.append((start, index, False))
+                start = index
+                chunks.append([" " * indent])
                 col = indent
-            positions[index] = (len(lines) - 1, col)
             if index == self._pos:
-                cursor = (len(lines) - 1, col)
+                cursor = (len(chunks) - 1, col)
             if char == "\n":
-                lines.append(" " * indent)
+                spans.append((start, index, True))
+                start = index + 1
+                chunks.append([" " * indent])
                 col = indent
+                marks = 0
             else:
-                lines[-1] += char
+                marks = marks + 1 if step == 0 else 0
+                # Bound visual combining-mark runs, without changing the draft.
+                if marks <= 32:
+                    chunks[-1].append(char)
                 col += step
         if self._pos == len(self._buffer):
-            cursor = (len(lines) - 1, col)
-        positions[len(self._buffer)] = (len(lines) - 1, col)
-        self._positions = positions
-        return lines, *cursor
+            cursor = (len(chunks) - 1, col)
+        spans.append((start, len(self._buffer), True))
+        self._row_spans = spans
+        self._visual_cursor = cursor
+        return ["".join(parts) for parts in chunks], *cursor
 
     def _render(self, prompt: str) -> None:
-        size = shutil.get_terminal_size((80, 24))
+        if self.footer:
+            self.footer.draw()
+        size = terminal_size()
+        self._last_size = size
+        reserved = self.footer.reserved_rows() if self.footer else 0
+        size = os.terminal_size((size.columns, max(2, size.lines - reserved)))
         menu = self._menu_lines(size.columns)[:max(0, size.lines - 3)]
+        if self._notice and len(menu) < max(1, size.lines-3):
+            menu.append(_fit(self.paint(self._notice, "error"), max(1, size.columns-1)))
         lines, row, column = self._layout(prompt, size.columns)
         capacity = max(1, size.lines - len(menu) - 1)
         if len(lines) > capacity and size.lines >= 4:
@@ -341,6 +375,8 @@ class Editor:
         self._cursor_row = target
         sys.stdout.write("".join(out))
         sys.stdout.flush()
+        if self.footer:
+            self.footer.draw()
 
     def _menu_lines(self, width: int) -> list[str]:
         if not self._menu_open():
@@ -372,13 +408,22 @@ class Editor:
                 out.append(f"\033[{self._cursor_row}A")
             out.append("\r" + CLEAR_TO_END)
             if keep:
-                out.append(prompt + self._buffer.replace("\n", NL))
+                size = terminal_size()
+                lines, _, _ = self._layout(prompt, size.columns)
+                cap = max(1, min(8, size.lines-3))
+                shown = lines[:cap]
+                if len(lines) > cap:
+                    shown.append(self.paint(f"  … {len(lines)-cap} more rows · {len(self._buffer)} chars (full draft sent)", "dim"))
+                out.append(NL.join(_fit(line, max(1,size.columns-1)) for line in shown))
             out.append(NL)
         elif keep:
             out.append(prompt + self._buffer + NL)
         self._rows = 0
+        self._cursor_row = 0
         sys.stdout.write("".join(out))
         sys.stdout.flush()
+        if self.footer:
+            self.footer.draw()
 
     # ------------------------------------------------------------------ state
 
@@ -402,6 +447,7 @@ class Editor:
         self._sel = 0
 
     def _on_edit(self, reset_history: bool = True) -> None:
+        self._notice = ""
         if reset_history:
             self._hist_pos = None
             self._draft = ""
@@ -411,6 +457,7 @@ class Editor:
     # ---------------------------------------------------------------- editing
 
     def _insert(self, text: str) -> None:
+        text = safe_text(text)
         self._buffer = self._buffer[: self._pos] + text + self._buffer[self._pos :]
         self._pos += len(text)
         self._on_edit()
@@ -494,13 +541,20 @@ class Editor:
         if self._menu_open():
             self._sel = (self._sel + step) % len(self._sugg)
             return
-        positions = getattr(self, "_positions", {})
-        if positions and max(r for r, c in positions.values()) > 0:
-            row, column = positions.get(self._pos, (0, 0))
-            candidates = [(abs(c - column), index) for index, (r, c) in positions.items()
-                          if r == row + step]
-            if candidates:
-                self._pos = min(candidates)[1]
+        spans = getattr(self, "_row_spans", [])
+        if len(spans) > 1:
+            row, column = self._visual_cursor
+            target = row + step
+            if 0 <= target < len(spans):
+                start, end, include_end = spans[target]
+                current = self._visual_indent
+                best = (float("inf"), start)
+                for index in range(start, end + int(include_end)):
+                    candidate = (abs(current-column), index)
+                    best = min(best, candidate)
+                    if index < len(self._buffer):
+                        current += _char_width(self._buffer[index])
+                self._pos = best[1]
             return
         self._history_step(step)
 
@@ -532,46 +586,56 @@ class Editor:
     def _load_history(self) -> None:
         if not self.history_path:
             return
+        total = sum(len(item.encode("utf-8")) for item in self.history)
         try:
             with open(self.history_path, encoding="utf-8", errors="replace") as handle:
-                lines = handle.read().splitlines()
+                for line in handle:
+                    line = line.rstrip("\r\n")
+                    if line.startswith('"'):
+                        try:
+                            decoded = json.loads(line)
+                            if isinstance(decoded, str): line = decoded
+                        except ValueError:
+                            pass
+                    line = safe_text(line)
+                    if not line.strip() or (self.history and self.history[-1] == line):
+                        continue
+                    self.history.append(line)
+                    total += len(line.encode("utf-8"))
+                    while self.history and (len(self.history) > MAX_HISTORY or total > MAX_HISTORY_BYTES):
+                        total -= len(self.history.pop(0).encode("utf-8"))
         except OSError:
-            return
-        for line in lines:
-            line = line.rstrip("\r")
-            if line.startswith('"'):
-                try:
-                    decoded = json.loads(line)
-                    if isinstance(decoded, str):
-                        line = decoded
-                except ValueError:
-                    pass
-            if not line.strip():
-                continue
-            if self.history and self.history[-1] == line:
-                continue
-            self.history.append(line)
-        del self.history[:-MAX_HISTORY]
+            pass
 
     def _remember(self, line: str) -> None:
         if not line.strip():
             return
-        if self.history and self.history[-1] == line:
+        if not self.history_path and self.history and self.history[-1] == line:
             return
         self.history.append(line)
         del self.history[:-MAX_HISTORY]
         if not self.history_path:
             return
         try:
-            os.makedirs(os.path.dirname(os.path.abspath(self.history_path)), exist_ok=True)
-            with open(self.history_path, "w", encoding="utf-8") as handle:
-                handle.write("\n".join(json.dumps(item, ensure_ascii=False) for item in self.history) + "\n")
+            with file_lock(self.history_path):
+                # Merge concurrent clients instead of overwriting their history.
+                self.history = []
+                self._load_history()
+                if not self.history or self.history[-1] != line:
+                    self.history.append(line)
+                self.history = self.history[-MAX_HISTORY:]
+                total = sum(len(item.encode("utf-8")) for item in self.history)
+                while self.history and total > MAX_HISTORY_BYTES:
+                    total -= len(self.history.pop(0).encode("utf-8"))
+                atomic_text(self.history_path, "\n".join(json.dumps(item, ensure_ascii=False) for item in self.history)+"\n")
         except OSError:
             pass
 
     # ------------------------------------------------------------------ input
 
     def _read_key(self) -> tuple[str, str]:
+        if not select.select([self._fd], [], [], 0.15)[0]:
+            return ("key", "idle")
         return read_raw_key(self._fd)
 
     def _read_escape(self) -> tuple[str, str]:
@@ -637,12 +701,22 @@ def read_raw_escape(fd: int) -> tuple[str, str]:
         return ("key", "newline")
     if rest == "[200~":
         data = bytearray()
+        tail = bytearray()
+        oversized = False
         end = b"\x1b[201~"
-        while not data.endswith(end):
+        while not tail.endswith(end):
             chunk = os.read(fd, 1)
             if not chunk:
                 raise EOFError("stdin closed during paste")
-            data.extend(chunk)
+            if chunk == b"\x03":
+                raise KeyboardInterrupt
+            tail.extend(chunk)
+            del tail[:-len(end)]
+            if not oversized:
+                data.extend(chunk)
+                oversized = len(data) > MAX_PASTE_BYTES + len(end)
+        if oversized:
+            return ("key", "paste-too-large")
         text = data[:-len(end)].decode("utf-8", errors="replace")
         text = text.replace("\r\n", "\n").replace("\r", "\n")
         # Never interpret pasted control bytes as terminal commands.

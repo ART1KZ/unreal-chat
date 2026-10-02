@@ -40,7 +40,7 @@ EXPIRED_HINT = (
 _TABLE_HEADERS = ("source", "email", "expires_h", "valid", "token_len")
 _TABLE_ALIGN = ("<", "<", ">", "<", ">")
 
-# Process-local cache: the store read copies a multi-megabyte WAL database.
+# Last native snapshot; accounts() rereads so other clients can update auth.
 _ACCOUNTS: list[dict] | None = None
 
 
@@ -52,18 +52,17 @@ def accounts() -> list[dict]:
     or absent expiry sort last and are never valid.
     """
     global _ACCOUNTS
-    if _ACCOUNTS is None:
-        payload = _read_json(os.path.expanduser(CODEX_AUTH_PATH))
-        found = []
-        if isinstance(payload, dict) and isinstance(payload.get("tokens"), dict):
-            tokens = payload["tokens"]
-            access = _text(tokens.get("access_token"))
-            claims = _jwt_claims(access)
-            found.append(_account("uachat", payload.get("email") or _claim_email(claims),
-                tokens.get("account_id"), payload.get("expires_ms") or _expires_from_token(access),
-                access, tokens.get("refresh_token")))
-        found.sort(key=lambda item: item["expires_ms"] or 0, reverse=True)
-        _ACCOUNTS = found
+    payload = _read_json(os.path.expanduser(CODEX_AUTH_PATH))
+    found = []
+    if isinstance(payload, dict) and isinstance(payload.get("tokens"), dict):
+        tokens = payload["tokens"]
+        access = _text(tokens.get("access_token"))
+        claims = _jwt_claims(access)
+        found.append(_account("uachat", payload.get("email") or _claim_email(claims),
+            tokens.get("account_id"), _epoch_ms(payload.get("expires_ms")) or _expires_from_token(access),
+            access, tokens.get("refresh_token")))
+    found.sort(key=lambda item: item["expires_ms"] or 0, reverse=True)
+    _ACCOUNTS = found
     return [dict(item) for item in _ACCOUNTS]
 
 
@@ -274,7 +273,7 @@ def _account(
         "expires_ms": expires_ms,
         "access": access,
         "refresh": refresh,
-        "valid": bool(expires_ms) and expires_ms > _now_ms(),
+        "valid": bool(expires_ms and access and account_id) and expires_ms > _now_ms(),
     }
 
 

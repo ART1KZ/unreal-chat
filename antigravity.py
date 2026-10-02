@@ -14,11 +14,13 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from secure_http import urlopen as secure_urlopen
 import uuid
 import webbrowser
 
 import codex_auth
 from native_auth import _lock
+from terminal_ui import positive_int
 
 ENDPOINT = 'https://daily-cloudcode-pa.googleapis.com'
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -37,7 +39,7 @@ def request(url, payload=None, access=None, form=False):
     if payload is not None:
         headers['Content-Type'] = 'application/x-www-form-urlencoded' if form else 'application/json'
         body = urllib.parse.urlencode(payload).encode() if form else json.dumps(payload).encode()
-    return urllib.request.urlopen(urllib.request.Request(url, data=body, headers=headers), timeout=60)
+    return secure_urlopen(urllib.request.Request(url, data=body, headers=headers), timeout=60)
 
 
 def oauth_client():
@@ -53,7 +55,10 @@ def oauth_client():
 def token_request(data):
     client_id, client_secret = oauth_client()
     with request(TOKEN_URL, {**data, 'client_id': client_id, 'client_secret': client_secret}, form=True) as r:
-        return json.load(r)
+        result = json.load(r)
+    if not isinstance(result, dict) or not isinstance(result.get('access_token'), str) or not positive_int(result.get('expires_in')):
+        raise ValueError('invalid Google OAuth token response')
+    return result
 
 
 def discover_project(access):
@@ -98,7 +103,7 @@ def credentials(force=False):
         data = codex_auth._read_json(path)
         if not isinstance(data, dict) or not data.get('refresh_token'):
             raise ValueError('run uachat login google-antigravity')
-        if force or data.get('expires_ms', 0) < (time.time()+120)*1000:
+        if force or (positive_int(data.get('expires_ms')) or 0) < (time.time()+120)*1000:
             result = token_request({'grant_type': 'refresh_token', 'refresh_token': data['refresh_token']})
             data.update(access_token=result['access_token'], expires_ms=int((time.time()+result['expires_in'])*1000))
             if result.get('refresh_token'):
@@ -140,6 +145,9 @@ def auth(action, headless=False):
     else:
         result = {}
         class Callback(http.server.BaseHTTPRequestHandler):
+            def setup(self):
+                super().setup()
+                self.connection.settimeout(5)
             def log_message(self,*args): pass
             def do_GET(self):
                 parsed = urllib.parse.urlsplit(self.path)
@@ -150,7 +158,7 @@ def auth(action, headless=False):
                 self.wfile.write(b'Return to uachat.' if valid else b'Invalid callback.')
                 if valid:
                     result['code'] = values.get('code',[''])[0]
-        with http.server.HTTPServer(('127.0.0.1',51121),Callback) as server:
+        with http.server.ThreadingHTTPServer(('127.0.0.1',51121),Callback) as server:
             server.timeout = 1
             print('Open this URL in a browser:\n'+url,flush=True)
             webbrowser.open(url)
@@ -259,6 +267,9 @@ class AntigravityBridge:
     def start(self):
         bridge = self
         class Handler(http.server.BaseHTTPRequestHandler):
+            def setup(self):
+                super().setup()
+                self.connection.settimeout(15)
             def log_message(self,*args): pass
             def do_POST(self):
                 if not secrets.compare_digest(self.headers.get('Authorization', ''), 'Bearer '+bridge.key):

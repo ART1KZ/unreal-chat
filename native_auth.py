@@ -16,10 +16,12 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from secure_http import urlopen as secure_urlopen
 import webbrowser
 from contextlib import contextmanager
 
 import codex_auth
+from terminal_ui import positive_int, safe_text
 
 ISSUER = 'https://auth.openai.com'
 CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
@@ -32,7 +34,7 @@ def _post(path: str, data: dict, *, form: bool = False) -> dict:
         'Content-Type': 'application/x-www-form-urlencoded' if form else 'application/json',
         'Accept': 'application/json',
     })
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with secure_urlopen(request, timeout=30) as response:
         result = json.load(response)
     if not isinstance(result, dict):
         raise ValueError('invalid OAuth response')
@@ -47,18 +49,17 @@ def _exchange(code: str, verifier: str, redirect: str) -> dict:
 
 @contextmanager
 def _lock(path: str):
-    import fcntl
-    parent = os.path.dirname(path)
-    os.makedirs(parent, mode=0o700, exist_ok=True)
-    fd = os.open(path + '.lock', os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+    from configio import file_lock
+    with file_lock(path):
         yield
-    finally:
-        os.close(fd)
 
 
 def _save(response: dict, path: str, previous: dict | None = None) -> None:
+    access = response.get('access_token')
+    if not isinstance(access, str) or not access or access.startswith('sk-'):
+        raise ValueError('OAuth response has no usable subscription access token')
+    if previous is None and not isinstance(response.get("refresh_token"), str):
+        raise ValueError("OAuth response lacks a refresh token")
     tokens = dict(previous or {})
     for name in ('access_token', 'refresh_token', 'id_token'):
         if response.get(name):
@@ -71,8 +72,10 @@ def _save(response: dict, path: str, previous: dict | None = None) -> None:
     if not tokens.get('access_token') or not tokens.get('account_id'):
         raise ValueError('OAuth response lacks access token or ChatGPT account id')
     expiry = codex_auth._expires_from_token(tokens['access_token'])
-    if expiry is None and response.get('expires_in'):
-        expiry = int((time.time() + float(response['expires_in'])) * 1000)
+    if expiry is None and positive_int(response.get('expires_in')):
+        expiry = int((time.time() + positive_int(response['expires_in'])) * 1000)
+    if not expiry or expiry <= time.time()*1000:
+        raise ValueError('OAuth response contains an expired token or no expiry')
     codex_auth._write_private_json(path, {'auth_mode': 'chatgpt', 'tokens': tokens,
         'expires_ms': expiry, 'email': codex_auth._claim_email(claims)
         or codex_auth._claim_email(id_claims)})
@@ -86,7 +89,9 @@ def ensure_fresh(path: str) -> dict:
         if not isinstance(payload, dict) or not isinstance(payload.get('tokens'), dict):
             raise ValueError('not logged in; run uachat login openai-codex')
         tokens = payload['tokens']
-        expiry = payload.get('expires_ms') or codex_auth._expires_from_token(tokens.get('access_token'))
+        if not isinstance(tokens.get('access_token'), str) or not tokens.get('account_id'):
+            raise ValueError('invalid auth file; run uachat login openai-codex')
+        expiry = positive_int(payload.get('expires_ms')) or codex_auth._expires_from_token(tokens.get('access_token'))
         if not expiry or expiry <= (time.time() + 120) * 1000:
             if not tokens.get('refresh_token'):
                 raise ValueError('token expired; run uachat login openai-codex')
@@ -104,6 +109,10 @@ def browser_login() -> dict:
     result = {}
 
     class Callback(http.server.BaseHTTPRequestHandler):
+        def setup(self):
+            super().setup()
+            self.connection.settimeout(5)
+
         def log_message(self, *args):
             pass  # callback URL contains a secret code
 
@@ -127,7 +136,7 @@ def browser_login() -> dict:
             self.end_headers()
             self.wfile.write(b'Authorization received. Return to uachat.')
 
-    with http.server.HTTPServer(('127.0.0.1', 1455), Callback) as server:
+    with http.server.ThreadingHTTPServer(('127.0.0.1', 1455), Callback) as server:
         server.timeout = 1
         url = ISSUER + '/oauth/authorize?' + urllib.parse.urlencode({
             'response_type': 'code', 'client_id': CLIENT_ID, 'redirect_uri': REDIRECT,
@@ -211,16 +220,18 @@ def main(argv=None) -> int:
             if not isinstance(payload, dict):
                 print('openai-codex: not logged in')
             else:
-                expiry = payload.get('expires_ms') or codex_auth._expires_from_token(payload.get('tokens', {}).get('access_token'))
+                tokens = payload.get('tokens') if isinstance(payload.get('tokens'), dict) else {}
+                expiry = positive_int(payload.get('expires_ms')) or codex_auth._expires_from_token(tokens.get('access_token'))
                 state = 'valid' if expiry and expiry > time.time() * 1000 else 'expired (refresh on next turn)'
-                print(f"openai-codex: {state} · {payload.get('email') or 'account'}")
+                print(f"openai-codex: {state} · {safe_text(payload.get('email') or 'account')}")
         return 0
     except KeyboardInterrupt:
         print('\nAuthorization cancelled.')
         return 130
     except urllib.error.HTTPError as error:
+        error.close()
         print(f'OAuth HTTP {error.code}; try login again (device login may need enabling in ChatGPT settings).')
         return 1
     except (OSError, ValueError, KeyError) as error:
-        print(f'Authorization failed: {error}')
+        print(f'Authorization failed: {safe_text(error)}')
         return 1

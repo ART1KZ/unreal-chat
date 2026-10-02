@@ -3,8 +3,14 @@
 # arguments, Esc, Ctrl-C exit semantics, Ctrl-D, interactive pickers. Runs the
 # client under a pseudo-terminal via script(1) and asserts on the visible output.
 set -uo pipefail
-client=/usr/local/bin/uachat
-work=/tmp/tty-test
+repo=$(cd "$(dirname "$0")" && pwd)
+client="$repo/uarchat.py"
+work=$(mktemp -d)
+export HOME="$work/home" XDG_STATE_HOME="$work/state"
+export UACHAT_AUTO_UPDATE=off
+mkdir -p "$HOME/.config/uachat"
+trap 'rm -rf "$work"' EXIT
+printf 'UACHAT_PROVIDER=opencode-go\n' > "$HOME/.config/uachat/env"
 pass=0
 fail=0
 
@@ -18,7 +24,7 @@ check() { # name, haystack, needle
   fi
 }
 
-strip() { sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/\x1b\][^\x07]*\x07//g'; }
+strip() { sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/\x1b\][^\x07]*\x07//g' -e 's/\x1b[78]//g'; }
 
 # run "sleep:text" ... — feed keystrokes with pauses so the editor is already
 # reading when they arrive.
@@ -30,39 +36,32 @@ run() {
 
 mkdir -p "$work"
 export UACHAT_NOTIFY=off
-unset UACHAT_PROVIDER 2>/dev/null || true
-cp "$HOME/.config/uachat/env" /tmp/tty-env.backup 2>/dev/null || true
-# Ensure initial provider in config is opencode-go
-if grep -q "^UACHAT_PROVIDER=" "$HOME/.config/uachat/env"; then
-  sed -i "s/^UACHAT_PROVIDER=.*/UACHAT_PROVIDER=opencode-go/" "$HOME/.config/uachat/env"
-else
-  echo "UACHAT_PROVIDER=opencode-go" >> "$HOME/.config/uachat/env"
-fi
+unset UACHAT_PROVIDER UNREAL_HARNESS_LLM_PROVIDER UNREAL_HARNESS_LLM_BASE_URL UNREAL_HARNESS_LLM_API_KEY UNREAL_HARNESS_LLM_MODEL UACHAT_THINKING 2>/dev/null || true
 
 # 1. Tab completion: /th + Tab completes /thinking, menu lists commands
-out=$(run "0.5:/th\t" "0.5:\x1b" "0.4:/exit\n")
+out=$(run "0.5:/th\t" "0.5:\x1b" "0.4:\x15/exit\n")
 check "tab completes a command" "$out" "/thinking"
 check "hint menu lists commands" "$out" "/thinking  pick the reasoning effort"
 
 # 2. Enter accepts highlighted hint in autocomplete
-out=$(run "0.5:/th\n" "0.5:\x1b" "0.4:/exit\n")
+out=$(run "0.5:/th\n" "0.5:\x1b" "0.4:\x15/exit\n")
 check "Enter accepts the highlighted hint in autocomplete" "$out" "/thinking"
 
 # 3. Interactive /provider picker with arrow navigation (starts at opencode-go, Down selects openai-codex)
-out=$(run "0.5:/provider\n" "0.5:\x1b[B" "0.5:\n" "0.4:/exit\n")
+out=$(run "0.5:/provider\n" "0.5:\x1b[B" "0.5:\n" "0.4:\x15/exit\n")
 check "interactive provider picker moves with Down arrow and selects" "$out" "provider: openai-codex"
 
 # 4. Interactive /model picker with live typing filter in openai-codex, then chained thinking picker
-out=$(run "0.5:/model\n" "0.5:sol" "0.5:\n" "0.5:\n" "0.4:/exit\n")
+out=$(run "0.5:/model\n" "0.5:sol" "0.5:\n" "0.5:\n" "0.4:\x15/exit\n")
 check "interactive model picker filters by typing and selects" "$out" "model: gpt-5.6-sol"
 check "chained thinking picker confirms effort" "$out" "thinking:"
 
 # 5. Inline model completion after space (/model gpt + Tab) in openai-codex
-out=$(run "0.5:/model gpt\t" "0.5:\x1b" "0.4:/exit\n")
+out=$(run "0.5:/model gpt\t" "0.5:\x1b" "0.4:\x15/exit\n")
 check "tab completes a model argument inline" "$out" "/model gpt-"
 
 # 6. Ctrl-C ladder
-out=$(run "0.6:" "0.8:\x03" "0.5:/themes\n" "0.4:/exit\n")
+out=$(run "0.6:" "0.8:\x03" "0.5:/themes\n" "0.4:\x15/exit\n")
 check "first Ctrl-C announces the exit hint" "$out" "Ctrl-C again to exit"
 check "client survives the first Ctrl-C" "$out" "gruvbox"
 
@@ -73,9 +72,6 @@ check "second Ctrl-C exits" "$out" "bye"
 out=$(run "0.6:" "0.4:\x04")
 check "Ctrl-D exits from an empty prompt" "$out" "› "
 
-cp /tmp/tty-env.backup "$HOME/.config/uachat/env" 2>/dev/null && chmod 600 "$HOME/.config/uachat/env"
-rm -f /tmp/tty-env.backup
-rm -rf "$work" /home/kai/.local/state/unreal-agent/sessions/tty-test.session.jsonl
 
 echo
 echo "passed=$pass failed=$fail"

@@ -10,6 +10,10 @@ upstream), so text appears when a model item completes, not token by token.
 from __future__ import annotations
 
 import argparse
+import secrets
+import select
+from collections import deque
+import tempfile
 import json
 import os
 import re
@@ -23,6 +27,8 @@ import threading
 import time
 import uuid
 from typing import Callable
+from terminal_ui import safe_text, terminal_size, SessionMetrics, TerminalFooter, item_record, count, positive_int, tokens_label, normalize_event, wrap_text
+from configio import save_value
 
 try:  # POSIX only; absent on Windows
     import readline
@@ -46,7 +52,16 @@ try:
 except ImportError:  # pragma: no cover - providers.py absent
     providers_module = None
 
-VERSION = "0.3"
+class ShutdownRequested(BaseException):
+    def __init__(self, signum):
+        self.signum = signum
+
+
+def request_shutdown(signum, frame):
+    raise ShutdownRequested(signum)
+
+
+VERSION = "0.4"
 
 CONFIG_PATH = os.path.expanduser("~/.config/uachat/env")
 HISTORY_PATH = os.path.expanduser("~/.config/uachat/history")
@@ -65,7 +80,7 @@ def read_stream_state() -> dict | None:
     try:
         with open(STREAM_STATE_PATH, "r", encoding="utf-8") as handle:
             data = json.load(handle)
-        if time.monotonic() - float(data.get("updated_at", 0)) < 3.0:
+        if isinstance(data, dict) and time.monotonic() - float(data.get("updated_at", 0)) < 3.0:
             return data
     except (OSError, ValueError, TypeError):
         pass
@@ -114,11 +129,13 @@ THEMES: dict[str, dict[str, str]] = {
 }
 
 COMMANDS = (
-    "/login", "/logout", "/auth", "/help", "/new", "/sessions", "/resume", "/session",
+    "/status", "/context", "/login", "/logout", "/auth", "/help", "/new", "/sessions", "/resume", "/session",
     "/provider", "/model", "/thinking", "/theme", "/themes", "/rtk", "/copy", "/dump", "/repair", "/exit", "/quit",
 )
 COMMAND_HELP = {
-    "/login": "sign in to Codex (--headless for device login)",
+    "/status": "current model, effort and measured context",
+    "/context": "set context limit in tokens, or auto",
+    "/login": "OAuth login (--headless supported)",
     "/logout": "remove uachat Codex credentials",
     "/auth": "show authorization status",
     "/help": "this text",
@@ -150,23 +167,8 @@ DOUBLE_INTERRUPT_WINDOW = 4.0
 
 def load_config(path: str = CONFIG_PATH) -> dict[str, str]:
     """Load KEY=VALUE defaults from the uachat env file; process env wins."""
-    values: dict[str, str] = {}
-    try:
-        with open(path, encoding="utf-8") as handle:
-            lines = handle.readlines()
-    except OSError:
-        return values
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        name, _, value = line.partition("=")
-        name, value = name.strip(), value.strip()
-        if not name:
-            continue
-        values[name] = value
-        # WSLENV from the Windows shim can inject these names as empty values;
-        # an empty variable must not shadow the configured default.
+    values = models_module.load_env(path) if models_module else {}
+    for name, value in values.items():
         if not os.environ.get(name):
             os.environ[name] = value
     return values
@@ -174,25 +176,9 @@ def load_config(path: str = CONFIG_PATH) -> dict[str, str]:
 
 def save_config_value(name: str, value: str, path: str = CONFIG_PATH) -> None:
     try:
-        with open(path, encoding="utf-8") as handle:
-            lines = handle.readlines()
-    except OSError:
-        lines = []
-    replaced = False
-    for index, line in enumerate(lines):
-        head = line.split("=", 1)[0].strip()
-        if head == name:
-            lines[index] = f"{name}={value}\n"
-            replaced = True
-            break
-    if not replaced:
-        if lines and not lines[-1].endswith("\n"):
-            lines[-1] += "\n"
-        lines.append(f"{name}={value}\n")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.writelines(lines)
-    os.chmod(path, 0o600)
+        save_value(path, name, value)
+    except (OSError, ValueError) as error:
+        print(f"  warning: could not save setting {name}: {safe_text(error)}", file=sys.stderr)
 
 
 # --------------------------------------------------------------------------- theme
@@ -205,6 +191,7 @@ class Theme:
         self.palette = THEMES[self.name]
 
     def paint(self, text: str, key: str, style: str = "") -> str:
+        text = safe_text(text)
         if not self.enabled or not text:
             return text
         code = self.palette.get(key, "")
@@ -226,56 +213,56 @@ def short(text: str, limit: int = MAX_ARG_CHARS) -> str:
 
 
 def session_path(name: str) -> str:
+    if not valid_session_name(name):
+        raise ValueError("invalid session id")
     return os.path.join(SESSION_DIR, f"{name}.session.jsonl")
+
+
+def iter_session_records(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as stream:
+            for line in stream:
+                try:
+                    rec = normalize_event(json.loads(line))
+                except ValueError:
+                    continue
+                if rec:
+                    yield rec
+    except OSError:
+        return
 
 
 def list_sessions(limit: int = 15) -> list[dict[str, object]]:
     try:
-        entries = [
-            os.path.join(SESSION_DIR, item)
-            for item in os.listdir(SESSION_DIR)
-            if item.endswith(".session.jsonl")
-        ]
+        names = os.listdir(SESSION_DIR)
     except OSError:
         return []
-    entries.sort(key=lambda path: os.path.getmtime(path), reverse=True)
-    sessions = []
-    for path in entries[:limit]:
-        name = os.path.basename(path)[: -len(".session.jsonl")]
-        sessions.append(
-            {
-                "name": name,
-                "mtime": os.path.getmtime(path),
-                "size": os.path.getsize(path),
-                "preview": session_preview(path),
-            }
-        )
-    return sessions
+    entries = []
+    suffix = ".session.jsonl"
+    for filename in names:
+        if not filename.endswith(suffix): continue
+        name = filename[:-len(suffix)]
+        if not valid_session_name(name): continue
+        path = session_path(name)
+        try:
+            info = os.stat(path)
+        except OSError:
+            continue
+        if not os.path.isfile(path): continue
+        entries.append((info.st_mtime, name, path, info.st_size))
+    entries.sort(reverse=True)
+    return [{"name":name, "mtime":stamp, "size":size, "preview":session_preview(path)}
+            for stamp, name, path, size in entries[:limit]]
 
 
 def session_preview(path: str) -> str:
-    try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            for _ in range(200):
-                line = handle.readline()
-                if not line:
-                    break
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                # On disk each record is wrapped: {"type":"item","data":{"Item":{...}}}
-                if record.get("type") == "item":
-                    record = (record.get("data") or {}).get("Item") or {}
-                data = record.get("Data") or {}
-                if record.get("Kind") == "input" and data.get("Kind") == "external":
-                    payload = data.get("Payload")
-                    if isinstance(payload, str):
-                        return short(payload, 60)
-                    if isinstance(payload, dict):
-                        return short(str(payload.get("Text") or payload), 60)
-    except OSError:
-        pass
+    for index, record in enumerate(iter_session_records(path)):
+        if index >= 200: break
+        data = record.get("Data") or {}
+        if record.get("Kind") == "input" and data.get("Kind") == "external":
+            payload = data.get("Payload")
+            if isinstance(payload, dict): payload = payload.get("Text") or ""
+            return short(safe_text(payload or ""), 60)
     return ""
 
 def clear_screen() -> None:
@@ -290,41 +277,29 @@ def replay_session(session_id: str, theme: Theme, model: str = "", thinking: str
     path = session_path(session_id)
     if not os.path.isfile(path):
         return []
-    turns: list[dict] = []
-    current_turn: dict = {"user": None, "tools": [], "agent": None}
-
-    try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            for line in handle:
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                item = (rec.get("data") or {}).get("Item") if rec.get("type") == "item" else rec
-                if not item:
-                    continue
-                kind = item.get("Kind")
-                data = item.get("Data") or {}
-
-                if kind == "input" and data.get("Kind") == "external":
-                    if current_turn["user"] is not None or current_turn["agent"] is not None:
-                        turns.append(current_turn)
-                        current_turn = {"user": None, "tools": [], "agent": None}
-                    p = data.get("Payload")
-                    current_turn["user"] = p.get("Text") if isinstance(p, dict) else str(p)
-                elif kind == "model_response":
-                    resp = data.get("Response") or {}
-                    for out in resp.get("Output") or []:
-                        otype = out.get("Type")
-                        odata = out.get("Data") or {}
-                        if otype == "message":
-                            current_turn["agent"] = odata.get("Text", "")
-                        elif otype == "tool_call":
-                            current_turn["tools"].append(odata.get("Name", "tool"))
-        if current_turn["user"] is not None or current_turn["agent"] is not None:
-            turns.append(current_turn)
-    except OSError:
-        return []
+    turns = deque(maxlen=max(1, max_turns))
+    total = 0
+    current_turn = {"user":None, "tools":[], "agent":None}
+    for rec in iter_session_records(path):
+        kind, data = rec.get("Kind"), rec.get("Data") or {}
+        if kind == "input" and data.get("Kind") == "external":
+            if current_turn["user"] is not None or current_turn["agent"] is not None:
+                turns.append(current_turn)
+                total += 1
+                current_turn = {"user":None, "tools":[], "agent":None}
+            payload = data.get("Payload")
+            current_turn["user"] = safe_text(payload.get("Text", "") if isinstance(payload, dict) else payload or "")
+        elif kind == "model_response":
+            for output in data["Response"]["Output"]:
+                payload = output["Data"]
+                if output.get("Type") == "message":
+                    text = safe_text(payload.get("Text") or "")
+                    current_turn["agent"] = ((current_turn["agent"]+"\n\n") if current_turn["agent"] else "")+text
+                elif output.get("Type") == "tool_call" and len(current_turn["tools"]) < 50:
+                    current_turn["tools"].append(safe_text(payload.get("Name") or "tool"))
+    if current_turn["user"] is not None or current_turn["agent"] is not None:
+        turns.append(current_turn)
+        total += 1
 
     resumed_transcript: list[tuple[str, str]] = []
     for t in turns:
@@ -336,8 +311,7 @@ def replay_session(session_id: str, theme: Theme, model: str = "", thinking: str
     if not turns:
         return resumed_transcript
 
-    total = len(turns)
-    shown = turns[-max_turns:]
+    shown = list(turns)
     omitted = total - len(shown)
 
     print()
@@ -345,16 +319,16 @@ def replay_session(session_id: str, theme: Theme, model: str = "", thinking: str
         print(theme.paint(f"  ─── ({omitted} earlier turns omitted) ───", "dim"))
     for t in shown:
         if t["user"]:
-            print("  " + theme.paint("› ", "user", BOLD) + t["user"])
+            for row in list(wrap_text(t["user"], terminal_size().columns-4))[:8]:
+                print("  " + theme.paint("› ", "user", BOLD) + row)
         if t["tools"]:
             tool_str = ", ".join(t["tools"])
             print("    " + theme.paint(f"⏵ {tool_str}", "tool"))
         if t["agent"]:
             print()
-            model_tag = model or "agent"
-            hdr = f"{model_tag} ({thinking_glyph(thinking)} {thinking})" if thinking else model_tag
+            hdr = "agent · replay"  # Historical model/effort are not reliably recorded by the runner.
             print("  " + theme.paint("⏺ ", "agent") + theme.paint(hdr, "label"))
-            lines = t["agent"].strip().splitlines()
+            lines = list(wrap_text(t["agent"].strip(), terminal_size().columns-4))
             for line in lines[:8]:
                 print("  " + theme.paint("│ ", "dim") + line)
             if len(lines) > 8:
@@ -365,7 +339,7 @@ def replay_session(session_id: str, theme: Theme, model: str = "", thinking: str
 
 
 def valid_session_name(name: str) -> bool:
-    return bool(name) and "/" not in name and "\\" not in name and name not in (".", "..")
+    return bool(name) and len(name) <= 128 and name not in (".", "..") and not any(c in name for c in "/\\") and all(ord(c) >= 32 and ord(c) != 127 for c in name)
 
 
 _MODEL_CACHE: dict[str, list[str]] = {}
@@ -452,7 +426,7 @@ def choose_model(provider_id: str, ids: list[str], prefer: str = "") -> str:
 def available_models(provider: str = "", refresh: bool = False) -> list[str]:
     """Model ids for a provider (cached), with the built-in fallback for the default one."""
     provider = provider or os.environ.get("UACHAT_PROVIDER") or DEFAULT_PROVIDER
-    if not refresh and _MODEL_CACHE.get(provider):
+    if not refresh and provider in _MODEL_CACHE:
         return _MODEL_CACHE[provider]
     ids: list[str] = []
     if providers_module is not None and provider in provider_ids():
@@ -485,8 +459,9 @@ def thinking_glyph(level: str) -> str:
 def notify(title: str, body: str) -> None:
     """Terminal toast (OSC 9 + BEL) plus a desktop notification when available."""
     value = (os.environ.get("UACHAT_NOTIFY") or "on").strip().lower()
-    if value in ("off", "0", "false", "no"):
+    if value in ("off", "0", "false", "no") or not sys.stdout.isatty():
         return
+    title, body = safe_text(title), safe_text(body)
     try:
         sys.stdout.write(f"\x1b]9;{title}: {body}\x07\a")
         sys.stdout.flush()
@@ -514,14 +489,37 @@ def copy_to_clipboard(text: str) -> None:
     sys.stdout.flush()
 
 
+def session_transcript(session):
+    for rec in iter_session_records(session_path(session)):
+        data = rec.get("Data") or {}
+        if rec.get("Kind") == "input" and data.get("Kind") == "external":
+            payload = data.get("Payload")
+            yield "you", safe_text(payload.get("Text", "") if isinstance(payload, dict) else payload or "")
+        elif rec.get("Kind") == "model_response":
+            for output in data["Response"]["Output"]:
+                if output.get("Type") == "message":
+                    yield "agent", safe_text(output["Data"].get("Text") or "")
+
+
 def dump_transcript(session: str, entries: list[tuple[str, str]]) -> str:
+    # Stream the authoritative session file, not just the bounded replay buffer.
+    path_on_disk = session_path(session)
     directory = os.path.join(STATE_DIR, "transcripts")
-    os.makedirs(directory, exist_ok=True)
-    path = os.path.join(directory, f"{session}-{time.strftime('%Y%m%d-%H%M%S')}.md")
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write(f"# uachat transcript · session {session}\n\n")
-        for role, text in entries:
-            handle.write(f"## {role}\n\n{text}\n\n")
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    path = os.path.join(directory, f"{session}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}.md")
+    fd, temporary = tempfile.mkstemp(prefix=".transcript-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(f"# uachat transcript · session {session}\n\n")
+            source = session_transcript(session) if os.path.isfile(path_on_disk) else entries
+            for role, text in source:
+                handle.write(f"## {role}\n\n{text}\n\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
     return path
 
 
@@ -552,9 +550,13 @@ def command_suggestions(text: str, theme: "Theme", provider: str = "") -> list[t
     if head == "/model":
         return [
             (item, provider or DEFAULT_PROVIDER)
-            for item in available_models(provider)
+            for item in (_MODEL_CACHE.get(provider or DEFAULT_PROVIDER) or
+                         (providers_module._DEFINITIONS.get(provider, {}).get("models", []) if providers_module else []) or
+                         (fallback_models() if provider == DEFAULT_PROVIDER else []))
             if not rest or rest.lower() in item.lower()
         ][:10]
+    if head in ("/login", "/logout", "/auth"):
+        return [(item, "OAuth provider") for item in ("openai-codex", "google-antigravity") if not rest or item.startswith(rest)]
     if head == "/provider":
         return [
             (item, provider_spec(item).get("label", item))
@@ -643,38 +645,29 @@ class Bridge:
         self.process: subprocess.Popen | None = None
 
     def start(self) -> str:
-        port = free_port()
         environment = os.environ.copy()
-        # Keep the upstream key out of `ps`: the child reads it from the environment.
         environment["UACHAT_BRIDGE_KEY"] = self.key
-        # Let the bridge notice when this client dies instead of lingering.
+        self.local_key = secrets.token_urlsafe(32)
+        environment["UACHAT_BRIDGE_LOCAL_KEY"] = self.local_key
         environment["UACHAT_PARENT_PID"] = str(os.getpid())
         self.process = subprocess.Popen(
-            [
-                sys.executable,
-                BRIDGE_PATH,
-                "--listen",
-                f"127.0.0.1:{port}",
-                "--target",
-                self.target,
-                "--session",
-                self.session,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=environment,
-            start_new_session=True,
-        )
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            try:
-                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
-                    return f"http://127.0.0.1:{port}/v1"
-            except OSError:
-                if self.process.poll() is not None:
-                    raise RuntimeError(f"bridge exited with code {self.process.returncode}")
-                time.sleep(0.05)
-        raise RuntimeError("bridge did not start in time")
+            [sys.executable, BRIDGE_PATH, "--listen", "127.0.0.1:0", "--target", self.target, "--session", self.session],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+            encoding="utf-8", env=environment, start_new_session=True)
+        try:
+            assert self.process.stdout is not None
+            if select.select([self.process.stdout], [], [], 5)[0]:
+                line = self.process.stdout.readline().strip()
+                match = re.fullmatch(r"listening on 127\.0\.0\.1:(\d+)", line)
+                if match:
+                    return f"http://127.0.0.1:{match[1]}/v1"
+            raise RuntimeError("bridge did not start (check URL/configuration)")
+        except BaseException:
+            self.stop()
+            raise
+        finally:
+            if self.process and self.process.stdout:
+                self.process.stdout.close()
 
     def stop(self) -> None:
         if self.process is None or self.process.poll() is not None:
@@ -684,15 +677,17 @@ class Bridge:
             self.process.wait(timeout=3)
         except subprocess.TimeoutExpired:
             self.process.kill()
+            self.process.wait(timeout=3)
         self.process = None
 
 
 class Spinner:
     FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
-    def __init__(self, theme: Theme, enabled: bool) -> None:
+    def __init__(self, theme: Theme, enabled: bool, footer=None) -> None:
         self.theme = theme
         self.enabled = enabled
+        self.footer = footer
         self.thread: threading.Thread | None = None
         self.stop_event = threading.Event()
         self.started_at = 0.0
@@ -749,8 +744,12 @@ class Spinner:
                     + self.theme.paint(status_text, "dim")
                     + self.theme.paint(" · Esc to interrupt", "dim")
                 )
+                if editor_module:
+                    line = editor_module._fit(line, max(1, terminal_size().columns-1))
                 sys.stdout.write("\r\033[K" + line)
                 sys.stdout.flush()
+                if self.footer:
+                    self.footer.draw()
                 index += 1
                 self.stop_event.wait(0.1)
 
@@ -768,8 +767,9 @@ class Spinner:
 
 
 class Renderer:
-    def __init__(self, theme: Theme, model: str = "", thinking: str = "") -> None:
+    def __init__(self, theme: Theme, model: str = "", thinking: str = "", on_usage=None) -> None:
         self.theme = theme
+        self.on_usage = on_usage
         self.model = model
         self.thinking = thinking
         self.width = shutil.get_terminal_size((100, 24)).columns
@@ -778,6 +778,7 @@ class Renderer:
         self.cached_tokens = 0
         self.started_at = time.monotonic()
         self.printed_operations: set[str] = set()
+        self.seen_responses: set[str] = set()
         self.last_assistant = ""
         self.last_error = ""
     # --- events
@@ -786,6 +787,7 @@ class Renderer:
         self.started_at = time.monotonic()
 
     def handle(self, record: dict) -> None:
+        record = normalize_event(record)
         kind = record.get("Kind")
         if kind == "model_response":
             self.model_response(record.get("Data") or {})
@@ -796,6 +798,11 @@ class Renderer:
 
     def model_response(self, data: dict) -> None:
         response = data.get("Response") or {}
+        response_id = response.get("ID")
+        if isinstance(response_id, str) and response_id:
+            if response_id in self.seen_responses:
+                return
+            self.seen_responses.add(response_id)
         failure = response.get("Failure")
         if failure:
             self.error(f"model failure: {failure.get('Message') or failure}")
@@ -813,15 +820,18 @@ class Renderer:
                 marker = self.theme.paint("⏵ ", "tool")
                 print(f"  {marker}{self.theme.paint(name, 'tool', BOLD)} {self.theme.paint(detail, 'dim')}")
         usage = response.get("Usage") or {}
-        self.input_tokens += int(usage.get("InputTokens") or 0)
-        self.output_tokens += int(usage.get("OutputTokens") or 0)
-        self.cached_tokens += int(usage.get("CachedInputTokens") or 0)
+        self.input_tokens += count(usage.get("InputTokens"))
+        self.output_tokens += count(usage.get("OutputTokens"))
+        self.cached_tokens += count(usage.get("CachedInputTokens"))
+        if self.on_usage:
+            self.on_usage(usage)
 
     def assistant_message(self, text: str) -> None:
-        text = text.strip("\n")
+        text = safe_text(text).strip("\n")
+        self.width = terminal_size().columns
         if not text:
             return
-        self.last_assistant = text
+        self.last_assistant += ("\n\n" if self.last_assistant else "") + text
         model_tag = self.model or "agent"
         if self.thinking:
             header = f"{model_tag} ({thinking_glyph(self.thinking)} {self.thinking})"
@@ -834,7 +844,7 @@ class Renderer:
             if not raw.strip():
                 print()
                 continue
-            for line in textwrap.wrap(raw, width=max(20, self.width - 6)) or [""]:
+            for line in wrap_text(raw, self.width - 6):
                 print(gutter + line)
         print()
 
@@ -857,8 +867,9 @@ class Renderer:
                 self.error(f"operation {status_name}: {state.get('TerminalError') or operation_id}")
 
     def tool_result(self, state: dict, result: dict) -> None:
-        output = str(result.get("Out") or "").rstrip("\n")
-        error_output = str(result.get("Err") or "").rstrip("\n")
+        self.width = terminal_size().columns
+        output = safe_text(result.get("Out") or "").rstrip("\n")
+        error_output = safe_text(result.get("Err") or "").rstrip("\n")
         combined = output
         if error_output.strip():
             combined = (combined + "\n" + error_output).strip("\n")
@@ -890,6 +901,7 @@ class Renderer:
         if exit_code not in (0, None):
             self.error(f"exit code {exit_code}")
     def error(self, message: str) -> None:
+        message = safe_text(message)
         self.last_error = message
         print("  " + self.theme.paint("✖ ", "error") + self.theme.paint(message, "error"))
 
@@ -920,7 +932,7 @@ def describe_call(payload: dict) -> tuple[str, str]:
         return "Bash", short(str(arguments["command"]))
     if isinstance(arguments, dict) and set(arguments) == {"path"}:
         return name, short(str(arguments["path"]))
-    return name, short(json.dumps(arguments, ensure_ascii=False))
+    return safe_text(name), short(safe_text(json.dumps(arguments, ensure_ascii=False)))
 
 
 # --------------------------------------------------------------------------- turn execution
@@ -938,12 +950,19 @@ def terminate(proc: subprocess.Popen) -> None:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             pass
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
 
 class InterruptWatcher:
-    """Listens on sys.stdin in cbreak mode during a turn to intercept Esc / Ctrl-C."""
+    """Raw input watcher; interrupts and preserves typed/pasted next-turn drafts."""
 
     def __init__(self, on_interrupt: Callable[[], None]) -> None:
         self.on_interrupt = on_interrupt
+        self._pending = bytearray()
+        self._paste = False
+        self.overflow = False
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._old_term = None
@@ -961,44 +980,79 @@ class InterruptWatcher:
             return
         try:
             import termios, tty
-            tty.setcbreak(self._fd, termios.TCSADRAIN)
+            tty.setraw(self._fd, termios.TCSADRAIN)
+            attributes = termios.tcgetattr(self._fd)
+            attributes[1] = self._old_term[1]  # renderer print() still needs output CRLF processing
+            termios.tcsetattr(self._fd, termios.TCSADRAIN, attributes)
+            sys.stdout.write("\033[?2004h")
+            sys.stdout.flush()
         except Exception:
             return
         self._stop.clear()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
+    def _queue(self, data):
+        if self.overflow:
+            return
+        self._pending.extend(data)
+        if len(self._pending) > 8*1024*1024:
+            self._pending.clear()
+            self.overflow = True
+
+    @property
+    def pending_text(self):
+        return safe_text(self._pending.decode("utf-8", "replace"))
+
+    def _escape(self):
+        sequence = bytearray()
+        while len(sequence) < 32 and not self._stop.is_set():
+            if not select.select([self._fd], [], [], .04 if not sequence else .02)[0]:
+                break
+            chunk = os.read(self._fd, 1)
+            if not chunk: break
+            sequence.extend(chunk)
+            if sequence[0] not in (ord("["), ord("O")): break
+            if len(sequence) > 1 and (chr(sequence[-1]).isalpha() or sequence[-1] in b"~@"):
+                break
+        return bytes(sequence)
+
     def _loop(self) -> None:
-        import select
         while not self._stop.is_set():
             try:
-                assert self._fd is not None
-                r, _, _ = select.select([self._fd], [], [], 0.05)
-            except (OSError, ValueError):
-                break
-            if r:
-                try:
-                    ch = os.read(self._fd, 1)
-                except OSError:
-                    break
-                if not ch:
-                    break
+                if not select.select([self._fd], [], [], .05)[0]:
+                    continue
+                ch = os.read(self._fd, 1)
+                if not ch: break
                 if ch == b"\x03":
                     self.on_interrupt()
                     break
                 if ch == b"\x1b":
-                    # Check if an escape sequence follows (e.g. arrow keys)
-                    r_esc, _, _ = select.select([self._fd], [], [], 0.04)
-                    if r_esc:
-                        try:
-                            seq = os.read(self._fd, 16)
-                        except OSError:
-                            break
-                        if seq and seq[0:1] in (b"[", b"O"):
-                            continue  # arrow or function key, ignore
-                    # Lone Esc keypress!
-                    self.on_interrupt()
-                    break
+                    sequence = self._escape()
+                    if sequence == b"[200~": self._paste = True
+                    elif sequence == b"[201~": self._paste = False
+                    elif not sequence and not self._paste and not self._stop.is_set():
+                        self.on_interrupt()
+                        break
+                    elif sequence in (b"\r", b"\n"):
+                        self._queue(b"\n")
+                    continue
+                if not self._paste and ch in (b"\x7f", b"\x08"):
+                    index = len(self._pending)-1
+                    while index > 0 and self._pending[index] & 0xc0 == 0x80:
+                        index -= 1
+                    if index >= 0: del self._pending[index:]
+                elif not self._paste and ch == b"\x15":
+                    self._pending.clear()
+                    self.overflow = False
+                elif ch in (b"\r", b"\n"):
+                    if self._pending or self._paste: self._queue(b"\n")
+                elif ch == b"\t":
+                    self._queue(b"    ")
+                elif ch[0] >= 32:
+                    self._queue(ch)
+            except (OSError, ValueError):
+                break
 
     def stop(self) -> None:
         self._stop.set()
@@ -1007,6 +1061,8 @@ class InterruptWatcher:
             self._thread = None
         if self._old_term is not None and self._fd is not None:
             try:
+                sys.stdout.write("\033[?2004l")
+                sys.stdout.flush()
                 import termios
                 termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old_term)
             except Exception:
@@ -1020,18 +1076,20 @@ def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spi
         env["SHELL"] = rtk_shell
     try:
         proc = subprocess.Popen(
-            [binary, "-workspace", workspace],
+            [binary, "-workspace", workspace, "-session-directory", SESSION_DIR],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
             env=env,
             start_new_session=True,
         )
-    except FileNotFoundError:
-        renderer.error(f"runner binary not found: {binary}")
-        return 127
+    except OSError as error:
+        renderer.error(f"cannot launch runner {safe_text(binary)}: {safe_text(error)}")
+        return 127 if isinstance(error, FileNotFoundError) else 126
     renderer.begin_turn()
     interrupted_by_esc = False
 
@@ -1059,7 +1117,7 @@ def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spi
             line = line.strip()
             if line:
                 try:
-                    record = json.loads(line)
+                    record = normalize_event(json.loads(line))
                     renderer.handle(record)
                     kind = record.get("Kind")
                     if kind == "model_response":
@@ -1070,7 +1128,9 @@ def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spi
                         else:
                             spinner.set_phase(model_phase)
                     elif kind == "tool_call_status":
-                        spinner.set_phase(model_phase)
+                        operations = record["Data"].get("Operations", [])
+                        if not any(op.get("Status") not in ("completed", "failed", "canceled") for op in operations):
+                            spinner.set_phase(model_phase)
                 except json.JSONDecodeError:
                     renderer.error(f"runner: {line}")
             spinner.start()
@@ -1083,7 +1143,17 @@ def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spi
         print(renderer.theme.paint("  [interrupted]", "warn"))
         return 130
     finally:
+        spinner.stop()
         watcher.stop()
+        renderer.pending_input = watcher.pending_text
+        if watcher.overflow:
+            renderer.error("queued draft exceeded 8 MiB and was discarded")
+        if proc.poll() is None:
+            terminate(proc)
+        if proc.stdout:
+            proc.stdout.close()
+        if proc.stdin and not proc.stdin.closed:
+            proc.stdin.close()
 
     if interrupted_by_esc:
         spinner.stop()
@@ -1100,7 +1170,7 @@ def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spi
 
 def setup_readline(theme: Theme) -> None:
     """Tab completion and history when running on a terminal."""
-    if readline is None or not sys.stdin.isatty():
+    if readline is None or not sys.stdin.isatty() or (editor_module is not None and editor_module.AVAILABLE):
         return
     import atexit
 
@@ -1145,24 +1215,34 @@ def _save_history() -> None:
 
 
 def banner(theme: Theme, workspace: str, session: str, model: str, endpoint: str, provider: str = "") -> str:
-    rows = [
-        ("workspace", workspace),
-        ("session", f"{session}   /sessions · /new [name]"),
-        ("provider", f"{provider}   /provider · /model"),
-        ("model", model),
-        ("endpoint", endpoint),
-        ("theme", f"{theme.name}   /themes · /theme <name>"),
-    ]
-    width = max(len(label) for label, _ in rows)
-    lines = [theme.paint(f"  uachat {VERSION}", "title", BOLD) + theme.paint(" · unreal-agent harness client", "dim")]
-    for label, value in rows:
-        lines.append("  " + theme.paint(f"{label:<{width}}", "label") + "  " + value)
-    lines.append(theme.paint("  /help for commands · Tab completes · /exit to leave", "dim"))
-    return "\n".join(lines)
+    return (theme.paint(f"  uachat {VERSION}", "title", BOLD)
+            + theme.paint(" · unreal-agent harness client", "dim") + "\n"
+            + theme.paint("  " + safe_text(workspace), "label") + "\n"
+            + theme.paint("  /help · Tab completes · Alt+Enter newline · /exit", "dim"))
+
+
+def status_line(theme, state, metrics, provider, session, context_limit=None):
+    limit = context_limit
+    if not limit and models_module:
+        limit = models_module.context_window(provider_spec(provider).get("base_url", ""), state.get("model", ""))
+    effort = state.get("thinking") or "high"
+    parts = [safe_text(state.get("model") or "model default"),
+             f"{thinking_glyph(effort)} {effort}", metrics.context_label(limit),
+             safe_text(provider), "s:"+safe_text(session)]
+    if metrics.output_tokens:
+        parts.append("out "+tokens_label(metrics.output_tokens))
+    if metrics.cached_tokens:
+        parts.append("cached "+tokens_label(metrics.cached_tokens))
+    if metrics.elapsed is not None:
+        parts.append(f"{metrics.elapsed:.1f}s")
+    style = "warn" if limit and metrics.context_tokens and metrics.context_tokens / limit >= .8 else "dim"
+    return theme.paint(" " + " · ".join(parts), style)
 
 
 HELP = """commands:
-  /login [openai-codex] [--headless]   standalone Codex OAuth
+  /status          current model, effort, context and usage
+  /context [tokens|auto]   explicit context limit (no guessed percentages)
+  /login [provider] [--headless]   standalone Codex OAuth
   /logout          remove uachat Codex credentials
   /auth            authorization status
   /help            this text
@@ -1170,7 +1250,7 @@ HELP = """commands:
   /sessions        list recent sessions with their first prompt
   /resume <name>   switch to an existing session
   /session         print the current session id
-  /provider [id]   show or switch the provider (opencode-go, openrouter, openai, fireworks, ollama)
+  /provider [id]   show or switch the provider (includes Codex and experimental Antigravity)
   /model [id]      show or switch the model (/model refresh re-reads the provider)
   /thinking [lvl]  show or switch the reasoning effort (/thinking next cycles)
   /themes          list themes
@@ -1194,6 +1274,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-s", "--session", help="session id to create or resume")
     parser.add_argument("-m", "--model", help="model id (sets the request's model field)")
     parser.add_argument("-t", "--thinking", choices=["low", "medium", "high", "xhigh", "max"], help="thinking level")
+    parser.add_argument("--context-window", type=int, help="explicit context limit in tokens (otherwise catalogue metadata, never guessed)")
     parser.add_argument("--theme", help="colour theme (see --themes)")
     parser.add_argument("--themes", action="store_true", help="list themes and exit")
     parser.add_argument("--version", action="store_true", help="print the client version and exit")
@@ -1219,6 +1300,7 @@ def main(argv: list[str] | None = None) -> int:
     # An explicitly exported base URL (outside ~/.config/uachat/env) wins and
     # keeps the bridge out of the way, e.g. when pointing at a local mock.
     explicit_base_url = os.environ.get("UNREAL_HARNESS_LLM_BASE_URL", "").strip()
+    explicit_provider = os.environ.get("UACHAT_PROVIDER") or os.environ.get("UNREAL_HARNESS_LLM_PROVIDER")
     config = load_config()
     if args.no_color:
         args.color = "never"
@@ -1256,14 +1338,38 @@ def main(argv: list[str] | None = None) -> int:
     if args.update_core:
         return subprocess.call(["/usr/bin/env", "bash", UPDATE_PATH])
 
+    if args.prompt is not None and not args.prompt.strip():
+        print("prompt must not be empty", file=sys.stderr)
+        return 2
     workspace = os.path.abspath(args.workspace)
     session_id = args.session or uuid.uuid4().hex[:12]
-    provider = (args.provider or os.environ.get("UACHAT_PROVIDER") or config.get("UACHAT_PROVIDER") or DEFAULT_PROVIDER).strip()
+    if not valid_session_name(session_id):
+        print("invalid session id", file=sys.stderr)
+        return 2
+    if not os.path.isdir(workspace):
+        print(f"workspace is not a directory: {safe_text(workspace)}", file=sys.stderr)
+        return 2
+    context_limit = positive_int(args.context_window or os.environ.get("UACHAT_CONTEXT_WINDOW"))
+    if args.context_window is not None and args.context_window <= 0:
+        print("--context-window must be positive", file=sys.stderr)
+        return 2
+    provider = (args.provider or explicit_provider or config.get("UACHAT_PROVIDER") or DEFAULT_PROVIDER).strip()
     if args.provider:
         os.environ["UNREAL_HARNESS_LLM_PROVIDER"] = args.provider
         if not args.model and provider in PROVIDER_DEFAULT_MODELS:
             os.environ["UNREAL_HARNESS_LLM_MODEL"] = PROVIDER_DEFAULT_MODELS[provider]
 
+    if provider not in provider_ids():
+        print(f"unknown provider: {safe_text(provider)}", file=sys.stderr)
+        return 2
+    state = {"model": args.model or os.environ.get("UNREAL_HARNESS_LLM_MODEL", ""),
+             "thinking": args.thinking or os.environ.get("UACHAT_THINKING") or "high"}
+    metrics = SessionMetrics()
+    metrics.load(session_path(session_id))
+    global STREAM_STATE_PATH
+    STREAM_STATE_PATH = os.path.join(STATE_DIR, f"stream-state-{os.getpid()}-{uuid.uuid4().hex[:8]}.json")
+    os.environ["UACHAT_STREAM_STATE_PATH"] = STREAM_STATE_PATH
+    footer = TerminalFooter(lambda: status_line(theme, state, metrics, provider, session_id, context_limit), enabled=not args.prompt)
     bridge: Bridge | None = None
 
     def apply_environment(current_session: str) -> str:
@@ -1272,9 +1378,15 @@ def main(argv: list[str] | None = None) -> int:
         if bridge is not None:
             bridge.stop()
             bridge = None
+        os.environ.pop("OPENAI_CODEX_AUTH_FILE", None)
         if explicit_base_url:
+            os.environ["UNREAL_HARNESS_LLM_PROVIDER"] = provider_spec(provider).get("harness", provider)
+            os.environ["UNREAL_HARNESS_LLM_BASE_URL"] = explicit_base_url
             return explicit_base_url
         spec = provider_spec(provider)
+        os.environ["UNREAL_HARNESS_LLM_PROVIDER"] = spec.get("harness", provider)
+        os.environ["UNREAL_HARNESS_LLM_BASE_URL"] = spec.get("base_url", "")
+        os.environ.pop("UNREAL_HARNESS_LLM_API_KEY", None)
         key = provider_key(provider)
         if provider == "google-antigravity":
             from antigravity import AntigravityBridge
@@ -1292,7 +1404,7 @@ def main(argv: list[str] | None = None) -> int:
             base_url = bridge.start()
             os.environ["UNREAL_HARNESS_LLM_PROVIDER"] = spec.get("harness", "openai")
             os.environ["UNREAL_HARNESS_LLM_BASE_URL"] = base_url
-            os.environ["UNREAL_HARNESS_LLM_API_KEY"] = "bridge"
+            os.environ["UNREAL_HARNESS_LLM_API_KEY"] = bridge.local_key
             return f"{base_url} → {spec['base_url']}"
         os.environ["UNREAL_HARNESS_LLM_PROVIDER"] = spec.get("harness", provider)
         os.environ["UNREAL_HARNESS_LLM_BASE_URL"] = spec.get("base_url", "")
@@ -1310,29 +1422,41 @@ def main(argv: list[str] | None = None) -> int:
         return spec.get("base_url", "(provider default)")
 
     def refresh_auth() -> None:
+        if not explicit_base_url and provider_spec(provider).get("needs_key") and not provider_key(provider):
+            raise RuntimeError(f"no API key configured for {provider}")
         if not explicit_base_url and providers_module is not None and providers_module.is_oauth(provider):
             os.environ.update(providers_module.auth_env(provider))
 
+    def prefetch_catalogue():
+        # Metadata can arrive without blocking the editor or changing its model.
+        if explicit_base_url:
+            return
+        spec = provider_spec(provider)
+        if spec.get("needs_key") and not provider_key(provider):
+            return
+        selected = provider
+        threading.Thread(target=lambda: available_models(selected, refresh=True), daemon=True).start()
+
     def build_request(prompt: str) -> dict:
         request: dict = {"prompt": prompt, "session_id": session_id}
-        if args.model:
-            request["model"] = args.model
-        thinking = args.thinking or os.environ.get("UACHAT_THINKING")
+        if state["model"]:
+            request["model"] = state["model"]
+        thinking = state["thinking"]
         if thinking:
             request["thinking_level"] = thinking
         return request
 
-    spinner_on = use_color and sys.stdout.isatty()
+    spinner_on = sys.stdout.isatty()
     try:
         endpoint = apply_environment(session_id)
-        model = args.model or os.environ.get("UNREAL_HARNESS_LLM_MODEL") or "(provider default)"
-        thinking = args.thinking or os.environ.get("UACHAT_THINKING") or ""
+        model = state["model"] or "(provider default)"
+        thinking = state["thinking"]
         model_line = f"{model} · {thinking_glyph(thinking)} {thinking}" if thinking else str(model)
 
         if args.prompt:
             kick_off_update_check(config)
             renderer = Renderer(theme, model=model, thinking=thinking)
-            spinner = Spinner(theme, spinner_on)
+            spinner = Spinner(theme, spinner_on, footer=footer)
             try:
                 refresh_auth()
             except Exception as error:
@@ -1340,6 +1464,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             return run_turn(args.binary, workspace, build_request(args.prompt), renderer, spinner)
 
+        footer.start()
+        prefetch_catalogue()
         print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
         flush_core_note(theme)
         transcript: list[tuple[str, str]] = []
@@ -1348,31 +1474,25 @@ def main(argv: list[str] | None = None) -> int:
         kick_off_update_check(config)
         setup_readline(theme)
 
-        state = {"model": args.model or os.environ.get("UNREAL_HARNESS_LLM_MODEL", ""), "thinking": thinking}
-        # The provider catalogue moves: keep a stale configured model from breaking the first turn.
-        known = available_models(provider, refresh=True)
-        if known and state["model"] and state["model"] not in known:
-            picked = choose_model(provider, known, state["model"])
-            if picked:
-                print(theme.paint(f"  model {state['model']} is gone from {provider}; using {picked}", "warn"))
-                state["model"] = picked
-                os.environ["UNREAL_HARNESS_LLM_MODEL"] = picked
-                save_config_value("UNREAL_HARNESS_LLM_MODEL", picked)
+        # An incomplete/stale catalogue must not silently replace an explicit model.
         reader = None
         if editor_module is not None and getattr(editor_module, "AVAILABLE", False):
             try:
                 reader = editor_module.Editor(
                     history_path=HISTORY_PATH,
+                    footer=footer,
                     suggestions=lambda text: command_suggestions(text, theme, provider),
                     paint=lambda text, key: theme.paint(text, key),
                 )
             except Exception:
                 reader = None
         last_interrupt = 0.0
+        next_draft = ""
         while True:
             try:
                 if reader is not None:
-                    line = reader.read_line(theme.paint("› ", "user", BOLD))
+                    draft, next_draft = next_draft, ""
+                    line = reader.read_line(theme.paint("› ", "user", BOLD), initial_text=draft)
                 else:
                     line = input(theme.paint("› ", "user", BOLD))
                 last_interrupt = 0.0
@@ -1389,6 +1509,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(theme.paint("  Ctrl-C again to exit", "warn"))
                 continue
             prompt = line.strip()
+            if prompt.startswith("/") and prompt.split()[0] not in COMMANDS:
+                print(theme.paint("unknown command; /help lists commands", "error"))
+                continue
             if not prompt:
                 continue
             if prompt in ("/exit", "/quit"):
@@ -1399,12 +1522,38 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     parts = shlex.split(prompt)
                     action = parts.pop(0)[1:]
+                    if not parts or parts[0].startswith("--"):
+                        if providers_module is not None and providers_module.is_oauth(provider):
+                            parts.insert(0, provider)
+                        elif action == "auth":
+                            print(f"{provider}: {credential_state(provider)}")
+                            continue
+                        elif action == "logout":
+                            print("specify an OAuth provider: /logout openai-codex or google-antigravity")
+                            continue
                     native_auth.main(["status" if action == "auth" else action] + parts)
                 except (ValueError, SystemExit) as error:
                     if isinstance(error, ValueError):
                         print(theme.paint(str(error), "error"))
                 if providers_module is not None:
                     providers_module._AUTH_STATE_CACHE.clear()
+                continue
+            if prompt == "/status":
+                print(status_line(theme, state, metrics, provider, session_id, context_limit))
+                print(theme.paint("  ctx uses the last request + output, not cumulative token billing; ~ means approximate", "dim"))
+                continue
+            if prompt == "/context" or prompt.startswith("/context "):
+                value = prompt.partition(" ")[2].strip()
+                if not value:
+                    print("context limit: " + (str(context_limit) if context_limit else "catalogue / unknown"))
+                elif value == "auto":
+                    context_limit = None
+                    save_config_value("UACHAT_CONTEXT_WINDOW", "")
+                elif positive_int(value):
+                    context_limit = positive_int(value)
+                    save_config_value("UACHAT_CONTEXT_WINDOW", str(context_limit))
+                else:
+                    print(theme.paint("context must be a positive token count or auto", "error"))
                 continue
             if prompt == "/help":
                 print(HELP)
@@ -1415,7 +1564,7 @@ def main(argv: list[str] | None = None) -> int:
             if prompt == "/themes":
                 print(", ".join(f"*{name}*" if name == theme.name else name for name in theme.names()))
                 continue
-            if prompt.startswith("/provider"):
+            if prompt == "/provider" or prompt.startswith("/provider "):
                 _, _, value = prompt.partition(" ")
                 value = value.strip()
                 known = provider_ids()
@@ -1464,9 +1613,17 @@ def main(argv: list[str] | None = None) -> int:
                         save_config_value("UNREAL_HARNESS_LLM_MODEL", picked)
                         print(f"model: {picked} (default for {value})")
                 elif not ids:
-                    print(theme.paint(f"   note: no model list for {value} (key? server?)", "warn"))
+                    picked = PROVIDER_DEFAULT_MODELS.get(provider, "")
+                    state["model"] = picked
+                    os.environ["UNREAL_HARNESS_LLM_MODEL"] = picked
+                    print(theme.paint(f"no model catalogue for {provider}; choose /model explicitly", "warn"))
+                elif not current:
+                    picked = choose_model(provider, ids)
+                    if picked:
+                        state["model"] = picked
+                        os.environ["UNREAL_HARNESS_LLM_MODEL"] = picked
                 continue
-            if prompt.startswith("/model"):
+            if prompt == "/model" or prompt.startswith("/model "):
                 _, _, value = prompt.partition(" ")
                 value = value.strip()
                 if not value:
@@ -1517,7 +1674,7 @@ def main(argv: list[str] | None = None) -> int:
                         save_config_value("UACHAT_THINKING", chosen_thinking)
                         print(f"thinking: {thinking_glyph(chosen_thinking)} {chosen_thinking}")
                 continue
-            if prompt.startswith("/thinking"):
+            if prompt == "/thinking" or prompt.startswith("/thinking "):
                 _, _, value = prompt.partition(" ")
                 value = value.strip()
                 levels = effort_levels()
@@ -1551,7 +1708,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"thinking: {thinking_glyph(value)} {value}")
                 continue
             if prompt == "/copy" or prompt.startswith("/copy "):
-                text = transcript[-1][1] if transcript else ""
+                text = next((text for role, text in reversed(transcript) if role == "agent"), "")
                 if not text:
                     print(theme.paint("nothing to copy yet", "warn"))
                 else:
@@ -1594,7 +1751,7 @@ def main(argv: list[str] | None = None) -> int:
                         res2 = subprocess.run([rtk_bin, "--version"], capture_output=True, text=True)
                         print("  " + (res2.stdout or res2.stderr).strip())
                 continue
-            if prompt.startswith("/theme"):
+            if prompt == "/theme" or prompt.startswith("/theme "):
                 _, _, name = prompt.partition(" ")
                 name = name.strip()
                 if not name:
@@ -1642,6 +1799,7 @@ def main(argv: list[str] | None = None) -> int:
                     if not chosen:
                         continue
                     session_id = chosen
+                    metrics.load(session_path(session_id))
                     try:
                         endpoint = apply_environment(session_id)
                     except RuntimeError as error:
@@ -1657,7 +1815,7 @@ def main(argv: list[str] | None = None) -> int:
                         marker = "*" if item["name"] == session_id else " "
                         print(f"{marker} {item['name']:<28} {stamp}  {item['preview']}")
                     continue
-            if prompt.startswith("/resume"):
+            if prompt == "/resume" or prompt.startswith("/resume "):
                 _, _, name = prompt.partition(" ")
                 name = name.strip()
                 if not name:
@@ -1683,6 +1841,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(theme.paint(f"no such session: {name or '(none given)'}", "error"))
                     continue
                 session_id = name
+                metrics.load(session_path(session_id))
                 try:
                     endpoint = apply_environment(session_id)
                 except RuntimeError as error:
@@ -1692,12 +1851,16 @@ def main(argv: list[str] | None = None) -> int:
                 print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
                 transcript = replay_session(session_id, theme, model=state.get("model", ""), thinking=state.get("thinking", ""))
                 continue
-            if prompt.startswith("/new"):
+            if prompt == "/new" or prompt.startswith("/new "):
                 _, _, name = prompt.partition(" ")
                 name = name.strip() or uuid.uuid4().hex[:12]
                 if not valid_session_name(name):
                     print(theme.paint("session name cannot contain slashes", "error"))
                     continue
+                if os.path.exists(session_path(name)):
+                    print(theme.paint("session already exists; use /resume", "error"))
+                    continue
+                metrics.reset()
                 session_id = name
                 try:
                     endpoint = apply_environment(session_id)
@@ -1709,17 +1872,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
                 print(f"new session: {session_id}\n")
                 continue
-            renderer = Renderer(theme, model=state.get("model", ""), thinking=state.get("thinking", ""))
-            spinner = Spinner(theme, spinner_on)
+            renderer = Renderer(theme, model=state.get("model", ""), thinking=state.get("thinking", ""), on_usage=metrics.observe)
+            spinner = Spinner(theme, spinner_on, footer=footer)
             try:
                 refresh_auth()
             except Exception as error:
                 print(theme.paint(str(error), "error"))
                 continue
             code = run_turn(args.binary, workspace, build_request(prompt), renderer, spinner)
+            next_draft = getattr(renderer, "pending_input", "")
+            metrics.elapsed = time.monotonic() - renderer.started_at
+            footer.draw()
             transcript.append(("you", prompt))
             if renderer.last_assistant.strip():
                 transcript.append(("agent", renderer.last_assistant.strip()))
+            del transcript[:-100]
             if code == 0:
                 notify("uachat", "turn complete")
             elif code == 130:
@@ -1730,14 +1897,27 @@ def main(argv: list[str] | None = None) -> int:
                 err_hint = short(renderer.last_error, 40) if renderer.last_error else f"exit {code}"
                 notify("uachat", f"failed: {err_hint}")
         return 0
+    except (OSError, RuntimeError, ValueError) as error:
+        print(theme.paint("client error: " + safe_text(error), "error"), file=sys.stderr)
+        return 1
     finally:
+        footer.close()
         if bridge is not None:
             bridge.stop()
+        try:
+            os.unlink(STREAM_STATE_PATH)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, request_shutdown)
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, request_shutdown)
     try:
         raise SystemExit(main())
+    except ShutdownRequested as error:
+        raise SystemExit(128 + error.signum)
     except KeyboardInterrupt:
         # Ctrl-C landed outside the prompt loop (e.g. between turns): leave cleanly.
         print("\n  bye")

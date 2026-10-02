@@ -10,6 +10,8 @@ upstream SSE response back.
 from __future__ import annotations
 
 import argparse
+import secrets
+import http.client
 import json
 import os
 import sys
@@ -17,6 +19,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from secure_http import urlopen as secure_urlopen
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CHUNK = 8192
@@ -24,7 +27,8 @@ TIMEOUT_SECONDS = 600
 
 
 class Bridge:
-    def __init__(self, target: str, key: str, session: str, user_agent: str) -> None:
+    def __init__(self, target: str, key: str, session: str, user_agent: str, local_key: str = "") -> None:
+        self.local_key = local_key or secrets.token_urlsafe(32)
         self.target = target.rstrip("/")
         self.key = key
         self.session = session
@@ -45,9 +49,38 @@ def make_handler(bridge: Bridge):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
+        def setup(self):
+            super().setup()
+            self.connection.settimeout(15)
+
+        def reject(self, status, message):
+            body = json.dumps({"error":{"message":message}}).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(body)
+            self.close_connection = True
+
         def do_POST(self) -> None:  # noqa: N802 - http.server API
-            length = int(self.headers.get("Content-Length") or 0)
-            body = self.rfile.read(length) if length else b""
+            if not secrets.compare_digest(self.headers.get("Authorization", ""), "Bearer "+bridge.local_key):
+                self.reject(401, "unauthorized local bridge request")
+                return
+            if self.path != "/v1/responses":
+                self.reject(404, "unknown bridge route")
+                return
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if length <= 0 or length > 64*1024*1024:
+                    self.reject(413, "invalid request size")
+                    return
+                body = self.rfile.read(length)
+                if len(body) != length or not isinstance(json.loads(body), dict):
+                    raise ValueError("invalid JSON")
+            except (ValueError, OSError):
+                self.reject(400, "invalid request body")
+                return
             dump_request(body)
             body, dropped = sanitize(body)
             if dropped:
@@ -66,7 +99,7 @@ def make_handler(bridge: Bridge):
             status = 502
             _write_stream_state("awaiting", started_at=time.monotonic())
             try:
-                upstream = urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS)
+                upstream = secure_urlopen(request, timeout=TIMEOUT_SECONDS)
                 status = upstream.status
             except urllib.error.HTTPError as error:
                 upstream = error
@@ -92,7 +125,7 @@ def make_handler(bridge: Bridge):
             last_progress_write = 0.0
             try:
                 while True:
-                    chunk = upstream.read(CHUNK)
+                    chunk = getattr(upstream, "read1", upstream.read)(CHUNK)
                     if not chunk:
                         break
                     total += len(chunk)
@@ -106,7 +139,7 @@ def make_handler(bridge: Bridge):
                         _write_stream_state("streaming", tokens=tok_est, tok_s=tok_s, bytes_total=total, elapsed=elapsed)
                     self.wfile.write(chunk)
                     self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
+            except (OSError, http.client.HTTPException):
                 pass
             finally:
                 upstream.close()
@@ -163,12 +196,11 @@ def dump_request(body: bytes) -> None:
     try:
         path = os.path.join(os.path.expanduser("~/.local/state/uachat"), "bridge-last-request.json")
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "wb") as handle:
-            handle.write(body)
-        os.chmod(path, 0o600)
+        from configio import atomic_text
+        atomic_text(path, body.decode("utf-8", "replace"))
     except OSError:
         pass
-STREAM_STATE_PATH = os.path.join(
+STREAM_STATE_PATH = os.environ.get("UACHAT_STREAM_STATE_PATH") or os.path.join(
     os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
     "uachat",
     "stream-state.json",
@@ -179,10 +211,8 @@ def _write_stream_state(state: str, **kwargs) -> None:
     try:
         os.makedirs(os.path.dirname(STREAM_STATE_PATH), exist_ok=True)
         payload = {"state": state, "updated_at": time.monotonic(), **kwargs}
-        tmp = STREAM_STATE_PATH + f".{os.getpid()}.tmp"
-        with open(tmp, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle)
-        os.replace(tmp, STREAM_STATE_PATH)
+        from configio import atomic_text
+        atomic_text(STREAM_STATE_PATH, json.dumps(payload))
     except OSError:
         pass
 
@@ -202,6 +232,7 @@ def main() -> int:
     parser.add_argument("--listen", default="127.0.0.1:8791", help="host:port to listen on (port 0 picks a free port)")
     parser.add_argument("--target", required=True, help="upstream base URL, e.g. https://opencode.ai/zen/go/v1")
     parser.add_argument("--key", default=os.environ.get("UACHAT_BRIDGE_KEY", ""), help="upstream API key (defaults to $UACHAT_BRIDGE_KEY; prefer the environment so it stays out of `ps`)")
+    parser.add_argument("--local-key", default=os.environ.get("UACHAT_BRIDGE_LOCAL_KEY", ""), help="local bearer credential (prefer environment)")
     parser.add_argument("--session", required=True, help="value for x-opencode-session (stable per conversation)")
     parser.add_argument("--user-agent", default="uarchat/0.1", help="User-Agent sent upstream")
     parser.add_argument("--parent-pid", type=int, default=int(os.environ.get("UACHAT_PARENT_PID", "0")), help="exit when this pid disappears (defaults to $UACHAT_PARENT_PID)")
@@ -209,8 +240,12 @@ def main() -> int:
     if not args.key:
         parser.error("--key or UACHAT_BRIDGE_KEY is required")
 
+    if not args.local_key:
+        parser.error("UACHAT_BRIDGE_LOCAL_KEY is required")
     host, _, port_text = args.listen.rpartition(":")
-    server = ThreadingHTTPServer((host or "127.0.0.1", int(port_text)), make_handler(Bridge(args.target, args.key, args.session, args.user_agent)))
+    if host not in ("127.0.0.1", "localhost"):
+        parser.error("bridge must listen on loopback")
+    server = ThreadingHTTPServer((host or "127.0.0.1", int(port_text)), make_handler(Bridge(args.target, args.key, args.session, args.user_agent, args.local_key)))
     threading.Thread(target=_watch_parent, args=(args.parent_pid,), daemon=True).start()
     print(f"listening on {server.server_address[0]}:{server.server_address[1]}", flush=True)
     try:

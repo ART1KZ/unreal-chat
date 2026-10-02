@@ -68,6 +68,18 @@ class EditorTests(unittest.TestCase):
             os.close(master)
             os.close(slave)
 
+    def test_oversized_paste_is_rejected_without_sending(self):
+        master, slave = pty.openpty()
+        try:
+            editor.tty.setraw(slave)
+            os.write(master,b'\x1b[200~123456789\x1b[201~\r')
+            with patch('editor.MAX_PASTE_BYTES',4):
+                self.assertEqual(editor.read_raw_key(slave),('key','paste-too-large'))
+            self.assertEqual(editor.read_raw_key(slave),('key','enter'))
+        finally:
+            os.close(master)
+            os.close(slave)
+
     def test_multiline_history_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = tmp + '/history'
