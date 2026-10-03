@@ -10,9 +10,9 @@ Read together with `README.md` (user docs) and the git history.
 one `unreal-agent-runner` process per prompt, a JSON request on stdin, JSONL
 events on stdout, no interactive UI.
 
-This repo is a *client*, not a fork. Core design rule: **one prompt = one
-`unreal-agent-runner` subprocess**; conversation continuity comes from a
-persisted `session_id`. Everything is Python 3 **stdlib only** (no third-party
+This repo is a *client*, not a fork. Core design rule: **one active work interval = one
+runner subprocess** (live inbox can accept multiple inputs); conversation continuity comes from a
+persisted `session_id`. The Python client is **stdlib only**; live-runner is a thin Go transport adapter (no third-party
 dependencies; the modules `editor`, `models`, `providers` are loaded from the
 repo directory).
 
@@ -34,7 +34,7 @@ repo directory).
 | `gh` CLI | **not installed in WSL** — use `cmd.exe /c gh …` or `powershell.exe -NoProfile -Command gh …` (authenticated as ART1KZ) |
 
 Environment: Windows 10 x64 host, WSL2 Ubuntu, Python 3.14.4. Client version
-string: `uachat 0.5.1` (`VERSION` in `uarchat.py`).
+string: `uachat 0.6` (`VERSION` in `uarchat.py`).
 
 ## 3. Architecture / data flow
 
@@ -308,3 +308,34 @@ wrapped as `{"type":"item","data":{"Item":{…}}}`. `Item.Kind`:
   draft restoration/footer update, diagnostic read-only invariants. Full suite
   72 tests plus 11 tty checks. User's actual credentials/config were not mutated
   by diagnostic execution.
+
+
+## 15. 0.6 true live inbox
+
+- live-runner/ Go module pins public unreal-agent v0.2.0. It exposes protocol-1
+  NDJSON start/input/stop/settings around the native coordinator/inbox/store.
+  No OMP, no copied coordinator, no internal packages, no HTTP injection.
+  Native StopWhenIdle bounds one work interval; additional user inputs can join
+  while model/tools run. Persistence observer emits live.accepted UUID receipts.
+- live.py owns TTY input/render/output in one event loop; Composer reuses
+  editor.feed_key and multiline layout. Threaded pipe reader/writer never paint
+  the terminal. No spinner thread overwrites the active composer. Input cap/
+  pending byte budget 8 MiB; per-session 0600 outbox, explicit /pending retry/drop.
+  Durable UUID dedup, canonical-log reconciliation after lost receipt. Never
+  silently replay unconfirmed text. Keep unsent drafts on stop.
+- Default TTY chat --live auto uses installed adapter, --live on requires it,
+  --live off legacy. Custom --binary defaults legacy; one-shot/pipes remain stock.
+  Session/account leases span the work interval. Retry text edits stop reusing ID.
+- Go is BUILD-only. build-live.sh bootstraps checksum-verified Go 1.27.1 if absent;
+  go.mod/sum pin SDK/dependencies. install.sh builds by default, opt out with
+  UACHAT_LIVE_BUILD=off. --install-live builds just the adapter, --live-binary or
+  UACHAT_LIVE_BINARY override executable. Installed locally on this machine.
+- Adapter checks parent PID, cancels/drains native operation-manager Updates on
+  shutdown so tools don't outlive cleanup. Plain stdin EOF isn't an abort.
+- editor.feed_key is shared between blocking REPL and live event loop; unchanged
+  buffer layout is cached to avoid repeated O(N) scans while progress ticks.
+- test_live.py: 12 tests including actual coordinator+mock/tool, supplement order,
+  stored receipts, restart UUID dedup, malformed frames, hard stop/parent death,
+  real PTY paste/no autosend, draft and terminal restoration. Full Python 84 tests,
+  Go 4 tests + go vet, tty 11 checks. Race build unavailable here (no C compiler),
+  do not claim race-detector coverage or live provider/cross-account certification.

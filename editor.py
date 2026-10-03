@@ -234,54 +234,9 @@ class Editor:
                     elif self.footer:
                         self.footer.draw(force=False)
                     continue
-                if kind == "text":
-                    self._insert(value)
-                elif value == "paste-too-large":
-                    self._notice = "Paste exceeds 8 MiB; draft unchanged"
-                elif value == "newline":
-                    self._insert("\n")
-                elif value == "enter":
-                    if not self._accept_pending():
-                        completed = True
-                        break
-                elif value == "ctrl-d":
-                    if not self._buffer:
-                        raise EOFError("end of input")
-                    self._delete()
-                elif value == "tab":
-                    self._accept()
-                elif value == "up":
-                    self._navigate(-1)
-                elif value == "down":
-                    self._navigate(1)
-                elif value == "esc":
-                    self._dismissed = True
-                elif value == "left":
-                    self._pos = max(0, self._pos - 1)
-                elif value == "right":
-                    if not (self._pos >= len(self._buffer) and self._accept_pending()):
-                        self._pos = min(len(self._buffer), self._pos + 1)
-                elif value in ("home", "ctrl-a"):
-                    self._pos = 0
-                elif value in ("end", "ctrl-e"):
-                    self._pos = len(self._buffer)
-                elif value == "backspace":
-                    self._backspace()
-                elif value == "delete":
-                    self._delete()
-                elif value == "ctrl-u":
-                    self._buffer = self._buffer[self._pos:]
-                    self._pos = 0
-                    self._on_edit()
-                elif value == "ctrl-k":
-                    self._buffer = self._buffer[: self._pos]
-                    self._on_edit()
-                elif value == "ctrl-w":
-                    self._kill_word()
-                elif value == "ctrl-l":
-                    self._cursor_row = 0
-                    self._rows = 0
-                    sys.stdout.write(ERASE_SCREEN)
+                if self.feed_key(kind,value):
+                    completed = True
+                    break
                 self._render(prompt)
         finally:
             try:
@@ -297,10 +252,65 @@ class Editor:
         self._remember(self._buffer)
         return self._buffer
 
+    def feed_key(self, kind: str, value: str) -> bool:
+        """Apply one key; return True only for explicit submission."""
+        if kind == "text":
+            self._insert(value)
+        elif value == "paste-too-large":
+            self._notice = "Paste exceeds 8 MiB; draft unchanged"
+        elif value == "newline":
+            self._insert("\n")
+        elif value == "enter":
+            if not self._accept_pending():
+                return True
+        elif value == "ctrl-d":
+            if not self._buffer:
+                raise EOFError("end of input")
+            self._delete()
+        elif value == "tab":
+            self._accept()
+        elif value == "up":
+            self._navigate(-1)
+        elif value == "down":
+            self._navigate(1)
+        elif value == "esc":
+            self._dismissed = True
+        elif value == "left":
+            self._pos = max(0, self._pos - 1)
+        elif value == "right":
+            if not (self._pos >= len(self._buffer) and self._accept_pending()):
+                self._pos = min(len(self._buffer), self._pos + 1)
+        elif value in ("home", "ctrl-a"):
+            self._pos = 0
+        elif value in ("end", "ctrl-e"):
+            self._pos = len(self._buffer)
+        elif value == "backspace":
+            self._backspace()
+        elif value == "delete":
+            self._delete()
+        elif value == "ctrl-u":
+            self._buffer = self._buffer[self._pos:]
+            self._pos = 0
+            self._on_edit()
+        elif value == "ctrl-k":
+            self._buffer = self._buffer[: self._pos]
+            self._on_edit()
+        elif value == "ctrl-w":
+            self._kill_word()
+        elif value == "ctrl-l":
+            self._cursor_row = 0
+            self._rows = 0
+            sys.stdout.write(ERASE_SCREEN)
+        return False
+
     # ------------------------------------------------------------- rendering
 
     def _layout(self, prompt: str, width: int) -> tuple[list[str], int, int]:
         """Explicit physical rows; reserve the last column to avoid autowrap."""
+        signature = (self._buffer,self._pos,prompt,width)
+        if signature == getattr(self,"_layout_signature",None):
+            return self._layout_cached
+        self._layout_signature = signature
         limit = max(1, width - 1)
         prompt = _fit(prompt, min(_visible_width(prompt), max(0, limit - 1)))
         indent = min(_visible_width(prompt), max(0, limit - 1))
@@ -337,7 +347,8 @@ class Editor:
         spans.append((start, len(self._buffer), True))
         self._row_spans = spans
         self._visual_cursor = cursor
-        return ["".join(parts) for parts in chunks], *cursor
+        self._layout_cached = (["".join(parts) for parts in chunks], *cursor)
+        return self._layout_cached
 
     def _render(self, prompt: str) -> None:
         if self.footer:

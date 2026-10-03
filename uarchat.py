@@ -62,7 +62,7 @@ def request_shutdown(signum, frame):
     raise ShutdownRequested(signum)
 
 
-VERSION = "0.5.1"
+VERSION = "0.6"
 
 CONFIG_PATH = os.path.expanduser("~/.config/uachat/env")
 HISTORY_PATH = os.path.expanduser("~/.config/uachat/history")
@@ -130,10 +130,11 @@ THEMES: dict[str, dict[str, str]] = {
 }
 
 COMMANDS = (
-    "/doctor", "/usage", "/accounts", "/rotation", "/status", "/context", "/login", "/logout", "/auth", "/help", "/new", "/sessions", "/resume", "/session",
+    "/pending", "/doctor", "/usage", "/accounts", "/rotation", "/status", "/context", "/login", "/logout", "/auth", "/help", "/new", "/sessions", "/resume", "/session",
     "/provider", "/model", "/thinking", "/theme", "/themes", "/rtk", "/copy", "/dump", "/repair", "/exit", "/quit",
 )
 COMMAND_HELP = {
+    "/pending": "inspect, retry or drop unconfirmed live input UUIDs",
     "/doctor": "read-only auth/browser diagnostics (no token values)",
     "/usage": "Codex subscription quotas and resets",
     "/accounts": "list saved Codex accounts",
@@ -1255,6 +1256,7 @@ def status_line(theme, state, metrics, provider, session, context_limit=None):
 
 
 HELP = """commands:
+  /pending [retry|drop UUID] inspect/manual resend of unconfirmed live inputs
   /doctor [provider] read-only auth/browser diagnostics; never prints tokens
   /usage [--all] [--cached]  subscription quotas, reset times, credits (Codex)
   /accounts [use EMAIL_OR_ID] saved Codex accounts / switch account
@@ -1299,6 +1301,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="store_true", help="print the client version and exit")
     parser.add_argument("--list", action="store_true", help="list recent sessions and exit")
     parser.add_argument("--provider", help="select a client provider (e.g. openai-codex, google-antigravity)")
+    parser.add_argument("--live", choices=["auto","on","off"], default="auto", help="live inbox supplements in TTY chat (auto requires installed adapter)")
+    parser.add_argument("--live-binary", help="live adapter executable")
+    parser.add_argument("--install-live", action="store_true", help="build/install pinned live inbox adapter and exit")
     parser.add_argument("--binary", default="unreal-agent-runner", help="runner binary path")
     parser.add_argument("--update-core", action="store_true", help="update the unreal-agent runner from upstream and exit")
     parser.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="colour output")
@@ -1365,11 +1370,22 @@ def main(argv: list[str] | None = None) -> int:
             stamp = time.strftime("%m-%d %H:%M", time.localtime(float(item["mtime"])))
             print(f"{item['name']:<28} {stamp}  {item['preview']}")
         return 0
+    if args.install_live:
+        return subprocess.call(["/usr/bin/env","bash",os.path.join(_HERE,"build-live.sh")])
     if args.update_core:
         return subprocess.call(["/usr/bin/env", "bash", UPDATE_PATH])
 
     if args.prompt is not None and not args.prompt.strip():
         print("prompt must not be empty", file=sys.stderr)
+        return 2
+    live_binary = args.live_binary or os.environ.get("UACHAT_LIVE_BINARY") or shutil.which("uachat-live-runner")
+    if not live_binary:
+        candidate = os.path.expanduser("~/.local/bin/uachat-live-runner")
+        live_binary = candidate if os.path.isfile(candidate) and os.access(candidate,os.X_OK) else None
+    tty_chat = not args.prompt and editor_module is not None and editor_module.AVAILABLE
+    live_on = tty_chat and args.live != "off" and bool(live_binary) and (args.binary == "unreal-agent-runner" or args.live == "on")
+    if args.live == "on" and not args.prompt and (not tty_chat or not live_binary):
+        print("live input requires a TTY and adapter; run uachat --install-live",file=sys.stderr)
         return 2
     workspace = os.path.abspath(args.workspace)
     session_id = args.session or uuid.uuid4().hex[:12]
@@ -1502,10 +1518,17 @@ def main(argv: list[str] | None = None) -> int:
                 raise LockBusyError("Эта сессия уже выполняет ход в другом клиенте. Дождись завершения или /new. Запрос не отправлен.") from None
             return execute_turn_unlocked(prompt,renderer,spinner)
 
+    def dispatch_runner(prompt, renderer, spinner):
+        if not live_on:
+            return run_turn(args.binary,workspace,build_request(prompt),renderer,spinner)
+        from live import run_live_turn
+        outbox = os.path.join(STATE_DIR,"live-outbox",session_id+".json")
+        return run_live_turn(live_binary,workspace,build_request(prompt),renderer,spinner,HISTORY_PATH,outbox)
+
     def execute_turn_unlocked(prompt, renderer, spinner):
         if provider != "openai-codex" or explicit_base_url:
             refresh_auth()
-            return run_turn(args.binary, workspace, build_request(prompt), renderer, spinner)
+            return dispatch_runner(prompt,renderer,spinner)
         import codex_pool
         def selected(info):
             state["quota_usage"] = info["usage"]
@@ -1517,7 +1540,7 @@ def main(argv: list[str] | None = None) -> int:
         print(theme.paint("  Codex: проверяю квоты и готовлю аккаунт…", "dim"))
         with codex_pool.turn(session_id,state["model"],on_select=selected) as (snapshot,info):
             os.environ["OPENAI_CODEX_AUTH_FILE"] = snapshot
-            code = run_turn(args.binary,workspace,build_request(prompt),renderer,spinner)
+            code = dispatch_runner(prompt,renderer,spinner)
             if code not in (0,130) and codex_pool.note_error(info["key"],renderer.last_error,state["model"]):
                 state["quota_error_model"] = state["model"]
                 print(theme.paint("  Лимит Codex достигнут. Следующий ход выберет доступный аккаунт; текущий ход НЕ повторяется автоматически.","warn"))
@@ -1535,6 +1558,10 @@ def main(argv: list[str] | None = None) -> int:
 
     def build_request(prompt: str) -> dict:
         request: dict = {"prompt": prompt, "session_id": session_id}
+        if state.get("retry_message_id") and state.get("retry_message_text") != prompt:
+            state.pop("retry_message_id",None); state.pop("retry_message_text",None)
+        if state.get("retry_message_id"):
+            request["messages"] = [{"role":"user","content":prompt,"message_id":state["retry_message_id"]}]
         if state["model"]:
             request["model"] = state["model"]
         thinking = state["thinking"]
@@ -1563,6 +1590,7 @@ def main(argv: list[str] | None = None) -> int:
         footer.start()
         prefetch_catalogue()
         print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
+        print(theme.paint("  live inbox: Enter отправляет дополнение во время работы" if live_on else "  live inbox отключён · --install-live для настоящих дополнений", "dim"))
         flush_core_note(theme)
         transcript: list[tuple[str, str]] = []
         if os.path.isfile(session_path(session_id)):
@@ -1655,6 +1683,29 @@ def main(argv: list[str] | None = None) -> int:
                 if providers_module is not None:
                     providers_module._AUTH_STATE_CACHE.clear()
                 continue
+            if prompt == "/pending" or prompt.startswith("/pending "):
+                from live import Outbox
+                outbox = Outbox(os.path.join(STATE_DIR,"live-outbox",session_id+".json"))
+                parts = prompt.split(maxsplit=2)
+                if len(parts)==1:
+                    for key,item in outbox.items.items():
+                        print(f"  {key} · {short(item['text'],100)}")
+                    if not outbox.items: print("Нет неподтверждённых дополнений.")
+                    continue
+                if len(parts)!=3 or parts[1] not in ("retry","drop") or parts[2] not in outbox.items:
+                    print("/pending retry|drop UUID (список: /pending)")
+                    continue
+                key = parts[2]
+                if parts[1]=="drop":
+                    try:
+                        with file_lock(os.path.join(SESSION_DIR,session_id+".client"),timeout=0):
+                            outbox.drop(key)
+                    except LockBusyError:
+                        print("Нельзя удалять очередь работающей сессии; сначала дождись завершения/останови её.")
+                    continue
+                prompt = outbox.items[key]['text']
+                state["retry_message_id"] = key
+                state["retry_message_text"] = prompt
             if prompt == "/status":
                 print(live_status_line())
                 print(theme.paint("  ctx uses the last request + output, not cumulative token billing; ~ means approximate", "dim"))
@@ -2005,15 +2056,27 @@ def main(argv: list[str] | None = None) -> int:
                     next_draft = prompt
                     print(theme.paint("Текст сохранён в черновике; ход не был запущен.", "dim"))
                 continue
+            retried_id = state.pop("retry_message_id",None)
+            state.pop("retry_message_text",None)
+            if retried_id:
+                from live import Outbox
+                box = Outbox(os.path.join(STATE_DIR,"live-outbox",session_id+".json"))
+                for record in iter_session_records(session_path(session_id)):
+                    if record.get("Kind")=="input" and record["Data"].get("ID")==retried_id:
+                        box.accepted(retried_id)
+                        break
             next_draft = getattr(renderer, "pending_input", "")
             metrics.elapsed = time.monotonic() - renderer.started_at
             footer.draw()
             transcript.append(("you", prompt))
+            for supplement in getattr(renderer,"live_messages",[]):
+                transcript.append(("you",supplement))
             if renderer.last_assistant.strip():
                 transcript.append(("agent", renderer.last_assistant.strip()))
             del transcript[:-100]
             if code == 0:
-                notify("uachat", "turn complete")
+                pending = getattr(renderer,"unconfirmed_count",0)
+                notify("uachat", f"turn complete; {pending} live inputs unconfirmed" if pending else "turn complete")
             elif code == 130:
                 # A second Ctrl-C right after an interrupt leaves the client.
                 last_interrupt = time.monotonic()

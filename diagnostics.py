@@ -22,6 +22,8 @@ def callback_port(port):
 
 def report(provider, ui):
     ui.title(provider+' · диагностика (без сетевых запросов)')
+    live = shutil.which('uachat-live-runner') or (os.path.expanduser('~/.local/bin/uachat-live-runner') if os.path.isfile(os.path.expanduser('~/.local/bin/uachat-live-runner')) else None)
+    ui.line('Live inbox adapter: '+('найден (протокол не запускался)' if live else 'не установлен; --install-live'), 'ok' if live else 'warn')
     core = shutil.which('unreal-agent-runner')
     ui.line('Runner: '+('найден' if core else 'не найден; установи core или укажи --binary'),'ok' if core else 'warn')
     wsl = auth_ui.is_wsl()

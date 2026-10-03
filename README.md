@@ -8,9 +8,10 @@
 
 Terminal UI & interactive chat client for the [unreal-agent](https://github.com/unreallabsai/unreal-agent) harness.
 
-`uachat` (or `unreal-chat`) is a client, not a harness: one prompt starts one `unreal-agent-runner`
-process, its JSONL session records are rendered as they arrive, and the
-conversation continues through a persisted session id. The harness itself ships
+`uachat` (or `unreal-chat`) is a client, not a harness: one work interval starts
+one runner process; live inbox mode lets multiple user inputs join that running
+interval. JSONL session records render as they arrive, and conversation continuity
+comes from a persisted session id. One-shot mode uses the stock runner. The harness itself ships
 no interactive UI — this wraps its `codex exec`-style runner into an ergonomic,
 batteries-included developer console.
 
@@ -495,3 +496,83 @@ Regression tests include separate-process lock holders, PTY draft restoration,
 idle footer updates, cross-account refresh rejection, failed registration and
 read-only diagnostics. The full offline/mock suite now has 72 tests, plus the
 11 command-UI checks.
+
+## Real live inbox / supplements while the agent works (0.6)
+
+This is **not** just a next-turn draft. In interactive TTY chat, the client can
+send a new user input to the **same running Unreal Agent coordinator**, while
+its tools/model are working. The next eligible model request includes that
+input; the currently running provider request cannot be retroactively rewritten.
+Tools are not killed or restarted to inject a supplement.
+
+```sh
+uachat --install-live              # build/install the pinned adapter once
+uachat                             # auto-enable live inbox when installed
+uachat --live on                   # require live adapter + TTY
+uachat --live off                  # explicitly use old runner/draft behavior
+uachat --live-binary /path/to/uachat-live-runner
+```
+
+During a running work interval a visible, editable `↳` composer appears:
+
+- **Enter** submits an addition/correction to the running agent.
+- **Alt+Enter** inserts a newline; clipboard multiline paste never auto-sends.
+- Backspace, Delete, cursor motion, visual-row navigation and history work.
+- **Esc / Ctrl-C** asks the harness to hard-stop its work. A second interrupt
+  escalates to process termination. Unsubmitted draft text returns to the prompt.
+- App switching commands (`/model`, `/provider`, `/resume`, etc.) are not model
+  messages: use them after finishing/stopping the current interval.
+
+The client reports **accepted into the session** only after an upstream store
+observer confirms persistence. This is not a claim that the model has already
+read/acted on it. Input UUIDs preserve order/idempotency; the adapter uses native
+`Inbox.Submit`, not HTTP prompt injection or manual session-file edits.
+
+### Unconfirmed delivery
+
+If the agent exits exactly while input is sent, or the transport fails, an
+addition is not silently lost or automatically replayed. Private per-session
+outbox files live under `~/.local/state/uachat/live-outbox/` (mode 0600):
+
+```text
+/pending                         list unconfirmed input UUIDs + previews
+/pending retry UUID               explicit resend using the SAME UUID
+/pending drop UUID                forget it after the work interval stopped
+```
+
+Canonical session history resolves an acknowledgement lost at process exit.
+Manual resend is deduplicated by the harness even across restarts. Editing the
+retry text creates a new input rather than reusing an ID with different content.
+A corrupt outbox is not silently overwritten. Concurrent working-session drops
+are rejected. Outbox holds at most 8 MiB of unconfirmed text.
+
+### Runtime/build architecture
+
+Python remains **stdlib-only**. A small Go **transport adapter** is added,
+linked to Unreal Agent v0.2.0 via its public APIs; this is not an OMP dependency
+or a harness fork. Go >=1.27 is build-time only, not required to run the installed
+binary. `build-live.sh` can bootstrap a Go 1.27.1 archive verified against the
+Go release SHA256; harness/transitive module versions are pinned by go.mod/sum.
+
+`install.sh` now builds this adapter by default; set `UACHAT_LIVE_BUILD=off` to
+skip. The runtime binary installs to `~/.local/bin/uachat-live-runner`; optional
+`UACHAT_LIVE_BINARY` selects another executable. Build once before packaging or
+reuse a trusted compatible binary. Normal `-p` one-shot and non-TTY scripts keep
+using the stock `unreal-agent-runner`; a custom `--binary` also keeps legacy mode
+unless live is explicitly requested. No automatic replay/fallback happens after
+a live process may already have executed tools.
+
+One active work interval uses one subprocess; it can now contain **multiple user
+inputs**, not just one prompt. It stops when idle. Session locking and Codex
+account leases cover the entire interval including additions. Native session
+format, operations, recovery, tools and scheduling are unchanged. The adapter
+monitors its parent and drains operation-manager shutdown before exit so tool
+cleanup is not cut off by `os.Exit`.
+
+**Tests:** actual Go coordinator + a local Responses mock, a running Bash tool,
+multiple ordered supplements, persistence receipts, UUID deduplication after
+restart, malformed frames, hard stop/parent death, and real PTY composing/paste/
+terminal restoration. Full Python suite: 84 tests when the adapter is installed,
+plus 4 Go tests/`go vet` and 11 existing command-UI checks. Adapter-dependent tests
+skip if it is not installed. Live provider-specific behavior (especially Google
+signatures and cross-account encrypted history) retains the earlier limitations.

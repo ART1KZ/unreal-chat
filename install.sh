@@ -24,6 +24,13 @@ else
   exit 1
 fi
 
+echo "=== 2b. Installing live inbox adapter ==="
+if [ "${UACHAT_LIVE_BUILD:-on}" != off ]; then
+  "$REPO_DIR/build-live.sh"
+else
+  echo "  Live adapter build skipped; stock one-shot/draft mode remains available."
+fi
+
 echo "=== 3. Setting up RTK (Rust Token Killer) and rtk-shell ==="
 if ! command -v rtk >/dev/null 2>&1; then
   echo "  Installing rtk..."
