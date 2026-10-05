@@ -28,7 +28,7 @@ class StatusTests(unittest.TestCase):
         self.assertIn('~14.0%',m.context_label(10000))
         self.assertIn('/ ?',m.context_label(None))
         m.reset()
-        self.assertEqual(m.context_label(10000),'ctx ?')
+        self.assertEqual(m.context_label(10000),'ctx —/10.0k')
 
     def test_metadata_only_no_fictional_model_limits(self):
         self.assertIsNone(models.context_window('test','unknown-model'))
@@ -76,7 +76,7 @@ class StatusTests(unittest.TestCase):
 class ClientTests(unittest.TestCase):
     def env(self, tmp):
         env = {k:v for k,v in os.environ.items() if not k.startswith(('UACHAT_','UNREAL_HARNESS_','OPENAI_','XDG_'))}
-        env.update(HOME=tmp, XDG_STATE_HOME=tmp+'/state', UACHAT_PROVIDER='ollama',
+        env.update(HOME=tmp, UACHAT_WINDOWS_HOME='off', XDG_STATE_HOME=tmp+'/state', UACHAT_PROVIDER='ollama',
                    UNREAL_HARNESS_LLM_PROVIDER='ollama', UACHAT_AUTO_UPDATE='off', UACHAT_NOTIFY='off',
                    UNREAL_HARNESS_LLM_BASE_URL='http://127.0.0.1:1/v1', REQUEST_LOG=tmp+'/requests.jsonl')
         return env
@@ -209,7 +209,7 @@ class ClientTTYTests(unittest.TestCase):
                         data.extend(chunk)
                 self.fail(f'PTY missing {needle!r}: {bytes(data[-2000:])!r}')
             try:
-                until(b'ctx ?')
+                until('ctx —/10.0k'.encode())
                 self.assertIn(b'\x1b[12;1H',data)
                 os.write(master,b'/thinking max\r')
                 until('◉ max'.encode())

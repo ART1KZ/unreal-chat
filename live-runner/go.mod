@@ -2,7 +2,10 @@ module github.com/ART1KZ/unreal-chat/live-runner
 
 go 1.27.0
 
-require github.com/unreallabsai/unreal-agent v0.2.0
+require (
+	github.com/unreallabsai/unreal-agent v0.2.0
+	go.yaml.in/yaml/v3 v3.0.4
+)
 
 require (
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect

@@ -60,7 +60,9 @@ class LiveTests(unittest.TestCase):
                 requests.append(request)
                 text=json.dumps(request)
                 follow=any(i.get('type')=='function_call_output' for i in request.get('input',[]) if isinstance(i,dict))
-                if 'addition-marker' in text:
+                if 'Produce a compact continuation checkpoint' in text:
+                    output=[message_item('Goal: keep user task. Progress: tool completed. Next steps: continue.')]
+                elif 'addition-marker' in text:
                     output=[message_item('Saw addition-marker in the running session.')]
                 elif follow:
                     output=[message_item('Tool completed without supplement.')]
@@ -76,7 +78,7 @@ class LiveTests(unittest.TestCase):
         self.server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Mock)
         threading.Thread(target=self.server.serve_forever,daemon=True).start()
         self.env={k:v for k,v in os.environ.items() if not k.startswith(('UACHAT_','UNREAL_HARNESS_','OPENAI_','XDG_'))}
-        self.env.update(HOME=self.work,XDG_STATE_HOME=self.work+'/state',UACHAT_PROVIDER='ollama',
+        self.env.update(HOME=self.work,UACHAT_WINDOWS_HOME='off',XDG_STATE_HOME=self.work+'/state',UACHAT_PROVIDER='ollama',
             UNREAL_HARNESS_LLM_PROVIDER='ollama',UNREAL_HARNESS_LLM_MODEL='mock',
             UNREAL_HARNESS_LLM_BASE_URL=f'http://127.0.0.1:{self.server.server_port}/v1',
             UNREAL_HARNESS_LLM_MAX_ATTEMPTS='1',UACHAT_AUTO_UPDATE='off',UACHAT_NOTIFY='off',SHELL='/bin/bash')
@@ -141,6 +143,28 @@ class LiveTests(unittest.TestCase):
         records=[item_record(json.loads(line)) for line in log.splitlines()]
         calls=[o for rec in records if rec.get('Kind')=='model_response' for o in rec['Data']['Response']['Output'] if o.get('Type')=='tool_call']
         self.assertEqual(len(calls),1)
+
+    def test_manual_compact_after_running_placeholder_applies_on_restart(self):
+        proc,events=self.spawn();self.start(proc,prompt='start work '+('old detail '*600));self.started()
+        identity=str(uuid.uuid4())
+        self.send(proc,{'type':'input','id':identity,'text':'addition-marker while tool runs'})
+        self.wait(events,lambda e:e.get('type')=='live.finished');proc.wait(timeout=5)
+        self.assertEqual(proc.returncode,0)
+        self.assertTrue(any('Tool call is still running' in json.dumps(request) for request in self.requests))
+        path=Path(self.work+'/sessions/live-test.session.jsonl')
+        original=path.read_bytes()
+        request={'session_id':'live-test','model':'mock','thinking_level':'high',
+                 'context':{'window':50000,'auto':False,'native':False},'compact_only':True}
+        def once(body):
+            result=subprocess.run([BINARY,'--once','-workspace',self.work,'-session-directory',self.work+'/sessions'],input=json.dumps(body),text=True,capture_output=True,env=self.env,timeout=10)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            return result
+        once(request)
+        self.assertEqual(path.read_bytes(),original)
+        request.pop('compact_only');request['prompt']='addition-marker after restart'
+        once(request)
+        self.assertIn('Historical continuation checkpoint',json.dumps(self.requests[-1]))
+        self.assertNotIn('old detail old detail',json.dumps(self.requests[-1]))
 
     def test_duplicate_uuid_is_persisted_once_and_receipted(self):
         proc,events=self.spawn();self.start(proc);self.started()

@@ -277,13 +277,17 @@ class Editor:
             self._dismissed = True
         elif value == "left":
             self._pos = max(0, self._pos - 1)
+            self._refresh()
         elif value == "right":
             if not (self._pos >= len(self._buffer) and self._accept_pending()):
                 self._pos = min(len(self._buffer), self._pos + 1)
+                self._refresh()
         elif value in ("home", "ctrl-a"):
             self._pos = 0
+            self._refresh()
         elif value in ("end", "ctrl-e"):
             self._pos = len(self._buffer)
+            self._refresh()
         elif value == "backspace":
             self._backspace()
         elif value == "delete":
@@ -444,7 +448,7 @@ class Editor:
     def _refresh(self) -> None:
         text = self._buffer
         try:
-            items = list(self.suggestions(text) or [])
+            items = list(self.suggestions(text[:self._pos]) or [])
         except Exception:  # a broken callback must not kill the editor
             items = []
         cleaned: list[tuple[str, str]] = []

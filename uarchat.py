@@ -29,6 +29,7 @@ import uuid
 from typing import Callable
 from terminal_ui import safe_text, terminal_size, SessionMetrics, TerminalFooter, item_record, count, positive_int, tokens_label, normalize_event, wrap_text
 from configio import save_value, file_lock, LockBusyError
+from skills import Catalog, adapter_binary
 from contextlib import ExitStack
 
 try:  # POSIX only; absent on Windows
@@ -62,7 +63,7 @@ def request_shutdown(signum, frame):
     raise ShutdownRequested(signum)
 
 
-VERSION = "0.6"
+VERSION = "0.7.0"
 
 CONFIG_PATH = os.path.expanduser("~/.config/uachat/env")
 HISTORY_PATH = os.path.expanduser("~/.config/uachat/history")
@@ -130,10 +131,13 @@ THEMES: dict[str, dict[str, str]] = {
 }
 
 COMMANDS = (
-    "/pending", "/doctor", "/usage", "/accounts", "/rotation", "/status", "/context", "/login", "/logout", "/auth", "/help", "/new", "/sessions", "/resume", "/session",
+    "/skills", "/skill",
+    "/pending", "/doctor", "/usage", "/accounts", "/rotation", "/status", "/context", "/compact", "/autocompact", "/login", "/logout", "/auth", "/help", "/new", "/sessions", "/resume", "/session",
     "/provider", "/model", "/thinking", "/theme", "/themes", "/rtk", "/copy", "/dump", "/repair", "/exit", "/quit",
 )
 COMMAND_HELP = {
+    "/skills": "list skills, sources and diagnostics; /skills reload refreshes",
+    "/skill": "explicitly select a skill: /skill name [task]",
     "/pending": "inspect, retry or drop unconfirmed live input UUIDs",
     "/doctor": "read-only auth/browser diagnostics (no token values)",
     "/usage": "Codex subscription quotas and resets",
@@ -141,6 +145,8 @@ COMMAND_HELP = {
     "/rotation": "automatic account rotation on/off",
     "/status": "current model, effort and measured context",
     "/context": "set context limit in tokens, or auto",
+    "/compact": "compact session history",
+    "/autocompact": "automatic context maintenance on|off",
     "/login": "OAuth login (--headless supported)",
     "/logout": "remove uachat Codex credentials",
     "/auth": "show authorization status",
@@ -541,18 +547,21 @@ def effort_levels() -> list[str]:
     return ["low", "medium", "high", "xhigh", "max"]
 
 
-def command_suggestions(text: str, theme: "Theme", provider: str = "") -> list[tuple[str, str]]:
+def command_suggestions(text: str, theme: "Theme", provider: str = "", skills: Catalog | None = None) -> list[tuple[str, str]]:
     """(replacement token, description) pairs for live hints above the input.
 
     The editor inserts the token at the cursor, so entries are token-relative:
     before the space it completes command names, after it completes arguments.
     """
+    skill_matches = skills.suggestions(text,COMMANDS) if skills is not None else []
     if not text.startswith("/"):
-        return []
+        return skill_matches
     head, _, rest = text.partition(" ")
     rest = rest.strip()
     if " " not in text:  # completing the command itself
-        return [(name, COMMAND_HELP.get(name, "")) for name in COMMANDS if name.startswith(text)]
+        return [(name, COMMAND_HELP.get(name, "")) for name in COMMANDS if name.startswith(text)] + skill_matches
+    if skill_matches:
+        return skill_matches
     if head == "/model":
         return [
             (item, provider or DEFAULT_PROVIDER)
@@ -797,6 +806,26 @@ class Renderer:
     def handle(self, record: dict) -> None:
         record = normalize_event(record)
         kind = record.get("Kind")
+        context_kind = record.get("type", "")
+        if isinstance(context_kind, str) and context_kind.startswith("context."):
+            if context_kind == "context.compacting":
+                print(self.theme.paint("  Сжимаю контекст…", "dim"))
+            elif context_kind == "context.compacted":
+                print(self.theme.paint(f"  Контекст сжат: ~{record.get('before', 0)} → ~{record.get('after', 0)} токенов", "dim"))
+                usage = record.get("Usage") if isinstance(record.get("Usage"), dict) else {}
+                self.input_tokens += count(usage.get("InputTokens"))
+                self.output_tokens += count(usage.get("OutputTokens"))
+                self.cached_tokens += count(usage.get("CachedInputTokens"))
+                if self.on_usage:
+                    self.on_usage(dict(usage, Compaction=True))
+                    self.on_usage({"ContextEstimate": record.get("after", 0)})
+            elif context_kind == "context.status":
+                if self.on_usage: self.on_usage({"ContextEstimate": record.get("tokens", 0)})
+            elif context_kind == "context.fallback":
+                print(self.theme.paint("  Нативный компакт недоступен; создаю структурированное резюме.", "dim"))
+            elif context_kind == "context.failed":
+                self.error("Сжатие не удалось; история сохранена.")
+            return
         if kind == "model_response":
             self.model_response(record.get("Data") or {})
         elif kind == "tool_call_status":
@@ -1078,14 +1107,14 @@ class InterruptWatcher:
                 pass
 
 
-def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spinner: Spinner) -> int:
+def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spinner: Spinner, skill_binary: str | None = None) -> int:
     env = os.environ.copy()
     rtk_shell = "/usr/local/bin/rtk-shell"
     if (os.environ.get("UACHAT_RTK") or "on").lower() not in ("off", "0", "false", "no") and os.path.isfile(rtk_shell):
         env["SHELL"] = rtk_shell
     try:
         proc = subprocess.Popen(
-            [binary, "-workspace", workspace, "-session-directory", SESSION_DIR],
+            ([skill_binary, "--once"] if skill_binary else [binary]) + ["-workspace", workspace, "-session-directory", SESSION_DIR],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -1129,6 +1158,10 @@ def run_turn(binary: str, workspace: str, request: dict, renderer: Renderer, spi
                     record = normalize_event(json.loads(line))
                     renderer.handle(record)
                     kind = record.get("Kind")
+                    if record.get("type") == "context.compacting":
+                        spinner.set_phase("compacting")
+                    elif record.get("type") == "context.compacted":
+                        spinner.set_phase(model_phase)
                     if kind == "model_response":
                         outputs = (record.get("Data") or {}).get("Response", {}).get("Output") or []
                         tool_names = [o.get("Data", {}).get("Name") for o in outputs if o.get("Type") == "tool_call"]
@@ -1230,10 +1263,10 @@ def banner(theme: Theme, workspace: str, session: str, model: str, endpoint: str
             + theme.paint("  /help · Tab completes · Alt+Enter newline · /exit", "dim"))
 
 
-def status_line(theme, state, metrics, provider, session, context_limit=None):
+def status_line(theme, state, metrics, provider, session, context_limit=None, base_url=None):
     limit = context_limit
     if not limit and models_module:
-        limit = models_module.context_window(provider_spec(provider).get("base_url", ""), state.get("model", ""))
+        limit = models_module.context_window(base_url or provider_spec(provider).get("base_url", ""), state.get("model", ""), provider="" if base_url else provider)
     effort = state.get("thinking") or "high"
     parts = [safe_text(state.get("model") or "model default"),
              f"{thinking_glyph(effort)} {effort}", metrics.context_label(limit),
@@ -1262,10 +1295,14 @@ HELP = """commands:
   /accounts [use EMAIL_OR_ID] saved Codex accounts / switch account
   /rotation on|off automatic rotation between saved Codex accounts
   /status          current model, effort, context and usage
-  /context [tokens|auto]   explicit context limit (no guessed percentages)
+  /context [tokens|auto]   context limit override
+  /compact                 compact session history
+  /autocompact [on|off]     automatic context maintenance
   /login [provider] [--headless]   standalone Codex OAuth
   /logout          remove uachat Codex credentials
   /auth            authorization status
+  /skills [filter] show discovered skills and original paths; /skills reload
+  /skill NAME      invoke a skill explicitly (also: $NAME in a prompt)
   /help            this text
   /new [name]      start a fresh session (named or generated)
   /sessions        list recent sessions with their first prompt
@@ -1300,6 +1337,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--themes", action="store_true", help="list themes and exit")
     parser.add_argument("--version", action="store_true", help="print the client version and exit")
     parser.add_argument("--list", action="store_true", help="list recent sessions and exit")
+    parser.add_argument("--skills", action="store_true", help="list discovered skills and diagnostics without an LLM request")
     parser.add_argument("--provider", help="select a client provider (e.g. openai-codex, google-antigravity)")
     parser.add_argument("--live", choices=["auto","on","off"], default="auto", help="live inbox supplements in TTY chat (auto requires installed adapter)")
     parser.add_argument("--live-binary", help="live adapter executable")
@@ -1395,7 +1433,15 @@ def main(argv: list[str] | None = None) -> int:
     if not os.path.isdir(workspace):
         print(f"workspace is not a directory: {safe_text(workspace)}", file=sys.stderr)
         return 2
+    skill_catalog = Catalog(workspace, live_binary)
+    if args.skills:
+        print(safe_text(skill_catalog.display()))
+        return 0 if skill_catalog.supported else 2
+    # Stock-compatible mode retains the original workspace and uses native
+    # SkillUse from the pinned public SDK. Custom binaries keep their contract.
+    skill_binary = live_binary if args.binary == "unreal-agent-runner" and skill_catalog.supported else None
     context_limit = positive_int(args.context_window or os.environ.get("UACHAT_CONTEXT_WINDOW"))
+    autocompact = os.environ.get("UACHAT_AUTOCOMPACT", "on").lower() not in ("off", "0", "false")
     if args.context_window is not None and args.context_window <= 0:
         print("--context-window must be positive", file=sys.stderr)
         return 2
@@ -1508,9 +1554,13 @@ def main(argv: list[str] | None = None) -> int:
 
     def live_status_line():
         sync_auth_status()
-        return status_line(theme,state,metrics,provider,session_id,context_limit)
+        return status_line(theme,state,metrics,provider,session_id,context_limit,explicit_base_url)
 
     def execute_turn(prompt, renderer, spinner):
+        skill_catalog.reload()
+        if prompt.startswith("/skill ") and not skill_catalog.supported:
+            raise ValueError("Skill discovery requires an updated adapter: uachat --install-live")
+        prompt = skill_catalog.invoke(prompt,COMMANDS)
         with ExitStack() as guard:
             try:
                 guard.enter_context(file_lock(os.path.join(SESSION_DIR,session_id+".client"),timeout=0))
@@ -1519,8 +1569,13 @@ def main(argv: list[str] | None = None) -> int:
             return execute_turn_unlocked(prompt,renderer,spinner)
 
     def dispatch_runner(prompt, renderer, spinner):
+        if state.get("compact_only"):
+            request = build_request("")
+            request.pop("prompt", None); request.pop("messages", None)
+            request["compact_only"] = True
+            return run_turn(args.binary,workspace,request,renderer,spinner,skill_binary=live_binary)
         if not live_on:
-            return run_turn(args.binary,workspace,build_request(prompt),renderer,spinner)
+            return run_turn(args.binary,workspace,build_request(prompt),renderer,spinner,skill_binary=skill_binary)
         from live import run_live_turn
         outbox = os.path.join(STATE_DIR,"live-outbox",session_id+".json")
         return run_live_turn(live_binary,workspace,build_request(prompt),renderer,spinner,HISTORY_PATH,outbox)
@@ -1567,6 +1622,12 @@ def main(argv: list[str] | None = None) -> int:
         thinking = state["thinking"]
         if thinking:
             request["thinking_level"] = thinking
+        if live_on or skill_binary:
+            window = context_limit
+            if not window and models_module:
+                window = models_module.context_window(explicit_base_url or provider_spec(provider).get("base_url", ""), state.get("model", ""), provider="" if explicit_base_url else provider)
+            request["context"] = {"window": window or 0, "auto": autocompact, "native": True}
+            if state.pop("compact_next", False): request["compact"] = True
         return request
 
     spinner_on = sys.stdout.isatty()
@@ -1591,6 +1652,7 @@ def main(argv: list[str] | None = None) -> int:
         prefetch_catalogue()
         print(banner(theme, workspace, session_id, model_line, str(endpoint), provider))
         print(theme.paint("  live inbox: Enter отправляет дополнение во время работы" if live_on else "  live inbox отключён · --install-live для настоящих дополнений", "dim"))
+        print(theme.paint("  Skills: "+str(len(skill_catalog.skills))+" · /name or $name · /skills for sources and diagnostics", "dim"))
         flush_core_note(theme)
         transcript: list[tuple[str, str]] = []
         if os.path.isfile(session_path(session_id)):
@@ -1605,7 +1667,7 @@ def main(argv: list[str] | None = None) -> int:
                 reader = editor_module.Editor(
                     history_path=HISTORY_PATH,
                     footer=footer,
-                    suggestions=lambda text: command_suggestions(text, theme, provider),
+                    suggestions=lambda text: command_suggestions(text, theme, provider, skill_catalog),
                     paint=lambda text, key: theme.paint(text, key),
                 )
             except Exception:
@@ -1633,7 +1695,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(theme.paint("  Ctrl-C again to exit", "warn"))
                 continue
             prompt = line.strip()
-            if prompt.startswith("/") and prompt.split()[0] not in COMMANDS:
+            if prompt.startswith("/") and prompt.split()[0] not in COMMANDS and not skill_catalog.is_slash_skill(prompt,COMMANDS):
                 print(theme.paint("unknown command; /help lists commands", "error"))
                 continue
             if not prompt:
@@ -1713,7 +1775,17 @@ def main(argv: list[str] | None = None) -> int:
             if prompt == "/context" or prompt.startswith("/context "):
                 value = prompt.partition(" ")[2].strip()
                 if not value:
-                    print("context limit: " + (str(context_limit) if context_limit else "catalogue / unknown"))
+                    import model_limits
+                    base = explicit_base_url or provider_spec(provider).get("base_url", "")
+                    metadata = models_module.MODEL_METADATA.get((base.rstrip("/"), state["model"]), {}) if models_module else {}
+                    info = model_limits.resolve("" if explicit_base_url else provider, state["model"], metadata)
+                    window = context_limit or (info["context"] if info else None)
+                    source = "manual override" if context_limit else (info["source"] if info else "unknown; use /context TOKENS")
+                    print(f"context limit: {window or '?'} · {source}")
+                    if window:
+                        reserve = max(16384, window*15//100)
+                        if reserve >= window: reserve = max(1, window//5)
+                        print(f"compaction threshold: ~{window-reserve} input tokens · reserve {reserve} · auto {'on' if autocompact else 'off'}")
                 elif value == "auto":
                     context_limit = None
                     save_config_value("UACHAT_CONTEXT_WINDOW", "")
@@ -1723,6 +1795,42 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     print(theme.paint("context must be a positive token count or auto", "error"))
                 continue
+            if prompt == "/compact":
+                if not (live_on or skill_binary):
+                    print("Сжатие требует обновлённого адаптера: uachat --install-live")
+                    continue
+                state["compact_only"] = True
+                renderer = Renderer(theme, model=state["model"], thinking=state["thinking"], on_usage=metrics.observe)
+                spinner = Spinner(theme, spinner_on, footer=footer)
+                try:
+                    execute_turn("", renderer, spinner)
+                except Exception as error:
+                    print(theme.paint(safe_text(error), "error"))
+                finally:
+                    state.pop("compact_only", None)
+                continue
+            if prompt == "/autocompact" or prompt.startswith("/autocompact "):
+                value = prompt.partition(" ")[2].strip()
+                if value in ("on", "off"):
+                    autocompact = value == "on"
+                    save_config_value("UACHAT_AUTOCOMPACT", value)
+                elif value: print("Use /autocompact on|off")
+                print("autocompact: " + ("on" if autocompact else "off"))
+                continue
+            if prompt == "/skills" or prompt.startswith("/skills "):
+                query = prompt.partition(" ")[2].strip()
+                if query == "reload":
+                    skill_catalog.reload()
+                    query = ""
+                print(safe_text(skill_catalog.display(query)))
+                continue
+            if prompt == "/skill":
+                items = [item for item in skill_catalog.skills if item['user']]
+                chosen = editor_module.pick([(item['name'], item['description']) for item in items], title="Select skill") if editor_module and items else None
+                if chosen is None:
+                    print("Use /skill NAME [task] or $NAME; /skills lists available skills")
+                    continue
+                prompt = "/skill "+chosen
             if prompt == "/help":
                 print(HELP)
                 continue
@@ -1797,7 +1905,8 @@ def main(argv: list[str] | None = None) -> int:
                 if not value:
                     ids = available_models(provider)
                     if editor_module is not None and getattr(editor_module, "AVAILABLE", False) and ids:
-                        m_items = [(item, provider) for item in ids]
+                        import model_limits
+                        m_items = [(item, model_limits.describe("" if explicit_base_url else provider, item, models_module.MODEL_METADATA.get(((explicit_base_url or provider_spec(provider).get("base_url", "")).rstrip("/"), item), {}) if models_module else {})) for item in ids]
                         chosen = editor_module.pick(
                             m_items,
                             title=f"Select model for {provider}",
@@ -1813,13 +1922,17 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"provider: {provider} · current model: {state['model'] or '(provider default)'}")
                         for index, item in enumerate(ids[:16], start=1):
                             mark = "*" if item == state["model"] else " "
-                            print(f" {mark} {item}")
+                            import model_limits
+                            print(f" {mark} {item} · {model_limits.describe(provider, item)}")
                         if len(ids) > 16:
                             print(theme.paint(f"   … {len(ids) - 16} more (/model <substring>)", "dim"))
                         print(theme.paint("   /model <id> · /model refresh", "dim"))
                         continue
                 if value == "refresh":
                     print(f"models: {len(available_models(provider, refresh=True))}")
+                    import model_limits
+                    try: print(f"context catalogue refreshed: {model_limits.refresh()} models")
+                    except Exception as error: print("Context catalogue refresh failed; using saved limits: "+safe_text(error))
                     continue
                 known = available_models(provider)
                 state["model"] = value

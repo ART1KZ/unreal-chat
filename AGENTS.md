@@ -339,3 +339,56 @@ wrapped as `{"type":"item","data":{"Item":{…}}}`. `Item.Kind`:
   real PTY paste/no autosend, draft and terminal restoration. Full Python 84 tests,
   Go 4 tests + go vet, tty 11 checks. Race build unavailable here (no C compiler),
   do not claim race-detector coverage or live provider/cross-account certification.
+
+
+## 16. 0.6.1 shared skill discovery and selectors
+
+- live-runner/skills.go owns discovery for both live and --once client turns.
+  Real YAML parser go.yaml.in/yaml/v3 v3.0.4 is a Go-only build dependency;
+  Python/runtime remains stdlib-only. --list-skills is read-only and provider-free.
+- Project to nearest Git boundary > UACHAT_SKILL_DIRS > WSL personal > Windows
+  personal roots. .harness/.agents/.claude/.opencode/.codex compatibility, nested
+  collections, canonical symlinks, file/name dedup, bounded scanning. README's
+  Skills section defines the exact ordering, policies and limits.
+- Python skills.Catalog consumes the adapter's catalog; /skills [filter|reload],
+  /skill picker or /skill NAME [task], $NAME hints in idle and live composers.
+  Editor callbacks receive text up to the cursor; cursor moves refresh hints.
+- The default non-live client uses the adapter's --once stock request/event
+  mode; explicit --binary keeps its original contract. Upstream runner and SDK
+  source remain unchanged. Refresh using build-live.sh / --install-live.
+- Native SkillUse reads original files. Full bodies/resources aren't copied
+  into the catalog. Manual-only policy is enforced by a registry wrapper until
+  explicit selection; model-only selection hints don't pollute canonical input.
+- Frontmatter disable-model-invocation/user-invocable and Codex openai.yaml
+  allow_implicit_invocation are honored. Host-specific plugin/MCP/permissions
+  metadata doesn't grant capabilities to this client's basic native tools.
+- test_skills covers isolated mock/tool roundtrips, resources and PTY completion;
+  fixture Windows discovery is off so tests never consume the real user's roots.
+  Automatic selection by a real hosted model has not been live-certified.
+
+- 0.6.2: slash completion merges built-in commands with /SKILL_NAME aliases.
+  Aliases invoke the same native selection path in idle/one-shot/live input.
+  Built-in commands win name collisions; /skill NAME and $NAME remain usable.
+
+
+## 17. 0.7.0 context maintenance and model windows
+
+- compaction.go wraps public llm.Adapter.Respond before every normal/tool-loop
+  call. Journal stays immutable; archive/checkpoint projections are private,
+  atomic and tied to raw prefix digests. Preserve latest user, system/tools,
+  full call groups, and SDK ToolCallRunningPayload until completion.
+- Native standalone output is opaque ItemReasoning.Raw only in the projection;
+  serializer replay is covered by a real SDK wire test. Keep full returned
+  native window. Bind native state to route/model/account, no credential logging.
+  Portable fallback must rebuild readable raw history if native state existed.
+- manual_compaction.go uses public builder/translators for read-only replay,
+  including committed running placeholders. Never execute tools or synthesize
+  canonical input for /compact. Pending operations/fork manual paths error.
+- model_limits.py uses provider-scoped bundled snapshot + explicit public
+  refresh; custom routes never borrow public model limits. Unknown configured
+  Ollama windows need metadata/manual override. Rendering performs no network
+  or repeated catalogue file reads. Keep Python stdlib-only.
+- Test context summaries, failure/cancellation, archives, overflow bounds,
+  restart and native-to-portable fallback. Live regression proves manual
+  checkpoint applies after supplement while tool was running. Hosted semantic
+  quality/native availability remain uncertified; do not overclaim.

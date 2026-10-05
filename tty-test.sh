@@ -8,6 +8,7 @@ client="$repo/uarchat.py"
 work=$(mktemp -d)
 export HOME="$work/home" XDG_STATE_HOME="$work/state"
 export UACHAT_AUTO_UPDATE=off
+export UACHAT_WINDOWS_HOME=off
 mkdir -p "$HOME/.config/uachat"
 trap 'rm -rf "$work"' EXIT
 printf 'UACHAT_PROVIDER=opencode-go\n' > "$HOME/.config/uachat/env"

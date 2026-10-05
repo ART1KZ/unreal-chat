@@ -68,9 +68,12 @@ class SessionMetrics:
     def observe(self, usage):
         if not isinstance(usage, dict):
             return
+        if 'ContextEstimate' in usage:
+            self.context_tokens = count(usage['ContextEstimate'])
+            return
         prompt = count(usage.get('InputTokens'))
         output = count(usage.get('OutputTokens'))
-        if 'InputTokens' in usage:
+        if 'InputTokens' in usage and not usage.get('Compaction'):
             self.context_tokens = prompt + output
         self.input_tokens += prompt
         self.output_tokens += output
@@ -92,11 +95,23 @@ class SessionMetrics:
                             self.observe(response.get('Usage'))
         except OSError:
             pass
+        # Summary requests live outside the SDK journal. Include their durable
+        # billing totals without replacing the last conversation occupancy.
+        suffix='.session.jsonl'
+        if str(path).endswith(suffix):
+            name=os.path.basename(path)[:-len(suffix)]
+            checkpoint=os.path.join(os.path.dirname(path),'context',name,'checkpoint.json')
+            try:
+                if os.path.getsize(checkpoint)<8*1024*1024:
+                    with open(checkpoint,encoding='utf-8') as stream: data=json.load(stream)
+                    usage=data.get('TotalUsage') or data.get('Usage') or {}
+                    if isinstance(usage,dict): self.observe(dict(usage,Compaction=True))
+            except (OSError,ValueError,AttributeError): pass
 
     def context_label(self, window):
         used = self.context_tokens
         if used is None:
-            return 'ctx ?'  # no measurements, not a fictitious empty context
+            return f'ctx —/{tokens_label(window)}' if window else 'ctx ?'
         if not window:
             return f'ctx ~{tokens_label(used)} / ?'
         return f'ctx ~{used / window * 100:.1f}% · {tokens_label(used)}/{tokens_label(window)}'

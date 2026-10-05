@@ -1,0 +1,2728 @@
+{
+  "date": "2026-10-05",
+  "url": "https://models.dev/api.json",
+  "providers": {
+    "opencode-go": {
+      "mimo-v2.6-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "qwen3.7-max": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1000000
+      },
+      "mimo-v2.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "grok-4.7": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 500000,
+        "context": 500000
+      },
+      "longcat-2.5-preview-free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "glm-5.3-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "qwen3.8-max": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "kimi-k3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "deepseek-v4.1-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 384000,
+        "context": 1000000
+      },
+      "deepseek-v4-flash-vision-exp": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 384000,
+        "context": 1000000
+      },
+      "kimi-k2.6": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 262144
+      },
+      "longcat-2.0": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "grok-4.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 500000,
+        "context": 500000
+      },
+      "minimax-m2.7": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 204800
+      },
+      "space-bunny-free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 524288,
+        "context": 1048576
+      },
+      "mimo-v2.5-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1048576
+      },
+      "mimo-v2.6-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "minimax-m3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "gpt-5.6-luna": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "qwen3.8-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "glm-5.2": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "hy3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 256000
+      },
+      "muse-spark-1.2-contributor": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "gpt-6-luna": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "deepseek-v4-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 384000,
+        "context": 1000000
+      },
+      "qwen3.6-plus": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1000000
+      },
+      "hy4-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 64000,
+        "context": 1024000
+      },
+      "muse-spark-1.3-contributor": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "glm-5.3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "kimi-k2.7-code": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 262144,
+        "context": 262144
+      },
+      "grok-4.6": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 500000,
+        "context": 500000
+      },
+      "qwen3.7-plus": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1000000
+      },
+      "deepseek-v4-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 384000,
+        "context": 1000000
+      }
+    },
+    "openai": {
+      "gpt-5.4": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "gpt-5.4-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "gpt-3.5-turbo": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 16385
+      },
+      "gpt-5.5-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "text-embedding-3-small": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 1536,
+        "context": 8191
+      },
+      "gpt-5.4-nano": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "gpt-realtime-2.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32000,
+        "context": 128000
+      },
+      "gpt-4o-2024-05-13": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 128000
+      },
+      "gpt-4o": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 128000
+      },
+      "gpt-5-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "gpt-5.2-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "o4-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      },
+      "o3-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      },
+      "text-embedding-ada-002": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 1536,
+        "context": 8192
+      },
+      "gpt-4": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 8192
+      },
+      "gpt-5.3-codex": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "gpt-4.1-nano": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 1047576
+      },
+      "gpt-5-nano": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "gpt-5.6": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "gpt-5.2-chat-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 128000
+      },
+      "o1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      },
+      "gpt-5-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 272000,
+        "context": 400000
+      },
+      "gpt-5.3-codex-spark": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32000,
+        "context": 128000
+      },
+      "gpt-6.1-sol": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "text-embedding-3-large": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 3072,
+        "context": 8191
+      },
+      "gpt-4o-2024-08-06": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 128000
+      },
+      "gpt-6-astra": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "gpt-5.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "gpt-4o-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 128000
+      },
+      "o3-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      },
+      "gpt-daybreak-blue-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "gpt-5.4-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "gpt-5.6-luna": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "gpt-5.2": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "gpt-5.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "gpt-4.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 1047576
+      },
+      "gpt-4o-2024-11-20": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 128000
+      },
+      "gpt-4.1-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 1047576
+      },
+      "gpt-6-luna": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "gpt-5.3-chat-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 128000
+      },
+      "gpt-5.6-terra": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "gpt-4-turbo": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 128000
+      },
+      "gpt-daybreak-red-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "o3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      },
+      "gpt-5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "gpt-5.6-sol": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "gpt-6-sol": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "o1-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      }
+    },
+    "openrouter": {
+      "sao10k/l3-lunaris-8b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 7372,
+        "context": 8192
+      },
+      "sao10k/l3.3-euryale-70b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 131072
+      },
+      "sao10k/l3.1-euryale-70b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 131072
+      },
+      "kwaipilot/kat-coder-pro-v2.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "stealth/space-bunny-alpha": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 524288,
+        "context": 1000000
+      },
+      "bytedance-seed/seed-1.6-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "bytedance-seed/seed-2.0-lite": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 262144
+      },
+      "bytedance-seed/seed-2-1-turbo": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "bytedance-seed/seed-2.0-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 262144
+      },
+      "bytedance-seed/seed-2.0-code": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 262144
+      },
+      "bytedance-seed/seed-1.6": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "~moonshotai/kimi-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "poolside/laguna-s-2.1:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "poolside/laguna-s-2.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "poolside/laguna-xs-2.1:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "poolside/laguna-xs-2.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "prism-ml/ternary-bonsai-2-27b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "anthropic/claude-opus-4.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32000,
+        "context": 200000
+      },
+      "anthropic/claude-opus-4.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 64000,
+        "context": 200000
+      },
+      "anthropic/claude-opus-4.6": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "anthropic/claude-opus-4.7": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "anthropic/claude-opus-4.8": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "anthropic/claude-haiku-4.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 64000,
+        "context": 200000
+      },
+      "anthropic/claude-opus-5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "anthropic/claude-sonnet-5.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "anthropic/claude-fable-5.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "anthropic/claude-sonnet-4.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 64000,
+        "context": 1000000
+      },
+      "anthropic/claude-fable-5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "anthropic/claude-sonnet-4": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 64000,
+        "context": 200000
+      },
+      "anthropic/claude-sonnet-5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "anthropic/claude-sonnet-4.6": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "anthropic/claude-opus-5.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "nex-agi/nex-n2.5-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "nex-agi/nex-n2.5-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "cohere/command-r-08-2024": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4000,
+        "context": 128000
+      },
+      "cohere/command-a-plus": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 64000,
+        "context": 192000
+      },
+      "cohere/command-a": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 256000
+      },
+      "cohere/north-mini-code:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 64000,
+        "context": 256000
+      },
+      "cohere/command-r7b-12-2024": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4000,
+        "context": 128000
+      },
+      "cohere/command-r-plus-08-2024": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4000,
+        "context": 128000
+      },
+      "deepseek/deepseek-chat-v3.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 163840
+      },
+      "deepseek/deepseek-v4-flash-0731": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "deepseek/deepseek-v4.1-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "deepseek/deepseek-v4-flash-vision-exp": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 262144,
+        "context": 1048576
+      },
+      "deepseek/deepseek-v3.1-terminus": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 147456,
+        "context": 163840
+      },
+      "deepseek/deepseek-chat": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16000,
+        "context": 163840
+      },
+      "deepseek/deepseek-v4-pro-0813": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "deepseek/deepseek-v3.2-exp": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 147456,
+        "context": 163840
+      },
+      "deepseek/deepseek-chat-v3-0324": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 115200,
+        "context": 163840
+      },
+      "deepseek/deepseek-r1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16000,
+        "context": 64000
+      },
+      "deepseek/deepseek-v4-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 384000,
+        "context": 1048576
+      },
+      "deepseek/deepseek-r1-0528": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 163840
+      },
+      "deepseek/deepseek-v3.2": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 163840
+      },
+      "deepseek/deepseek-v4-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "unbiased/pareto-26.10-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "unbiased/pareto": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 262144
+      },
+      "tencent/hy3-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "tencent/hunyuan-a13b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117964,
+        "context": 131072
+      },
+      "tencent/hy-mt2-30b-a3b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 8192
+      },
+      "tencent/hy-mt2-1.8b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 8192
+      },
+      "tencent/hy3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 262144
+      },
+      "tencent/hy-mt2-7b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 8192
+      },
+      "tencent/hy4-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 64000,
+        "context": 1048576
+      },
+      "anthracite-org/magnum-v4-72b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 32768
+      },
+      "meta-llama/llama-4-scout": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 1310720
+      },
+      "meta-llama/llama-guard-4-12b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 163840
+      },
+      "meta-llama/llama-4-maverick": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 1048576
+      },
+      "meta-llama/llama-3.3-70b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 131072
+      },
+      "meta-llama/llama-3.1-8b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117964,
+        "context": 131072
+      },
+      "meta-llama/llama-3.2-1b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 54000,
+        "context": 60000
+      },
+      "meta-llama/llama-3.2-3b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117964,
+        "context": 131072
+      },
+      "meta-llama/llama-3.1-70b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 131072
+      },
+      "~google/gemini-flash-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "~google/gemini-pro-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "perceptron/perceptron-mk1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 32768
+      },
+      "perceptron/perceptron-mk1.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 36864
+      },
+      "z-ai/glm-4.6v": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 131072
+      },
+      "z-ai/glm-4.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 98304,
+        "context": 131072
+      },
+      "z-ai/glm-5.3-prime": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "z-ai/glm-5v-turbo": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 202752
+      },
+      "z-ai/glm-5.3-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943717,
+        "context": 1048576
+      },
+      "z-ai/glm-4.6": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 204800
+      },
+      "z-ai/glm-5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 204800
+      },
+      "z-ai/glm-4.5v": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 65536
+      },
+      "z-ai/glm-5.3-flashx": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "z-ai/glm-4.7-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117964,
+        "context": 200000
+      },
+      "z-ai/glm-4.7": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 204800
+      },
+      "z-ai/glm-5.2": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "z-ai/glm-5.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 204800
+      },
+      "z-ai/glm-5-turbo": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 202752
+      },
+      "z-ai/glm-4.5-air": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 98304,
+        "context": 131072
+      },
+      "z-ai/glm-5.3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "inference-net/schematron-v2-small": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 128000
+      },
+      "inference-net/schematron-v2-turbo": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 128000
+      },
+      "thinkingmachines/inkling-small:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 262144,
+        "context": 1048576
+      },
+      "thinkingmachines/inkling-small": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 262144,
+        "context": 524288
+      },
+      "thinkingmachines/inkling:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 262144,
+        "context": 1048576
+      },
+      "thinkingmachines/inkling": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 262144,
+        "context": 524288
+      },
+      "meituan/longcat-2.0": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 262144,
+        "context": 1048756
+      },
+      "openrouter/bodybuilder": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 128000
+      },
+      "openrouter/free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8000,
+        "context": 200000
+      },
+      "openrouter/pareto-code": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 200000,
+        "context": 2000000
+      },
+      "openrouter/fusion": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "openrouter/auto": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 2000000,
+        "context": 2000000
+      },
+      "perplexity/sonar-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8000,
+        "context": 200000
+      },
+      "perplexity/sonar-deep-research": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 115200,
+        "context": 128000
+      },
+      "perplexity/sonar": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 114364,
+        "context": 127072
+      },
+      "perplexity/sonar-reasoning-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 115200,
+        "context": 128000
+      },
+      "perplexity/sonar-pro-search": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8000,
+        "context": 200000
+      },
+      "meta/muse-spark-1.3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "meta/muse-glimmer-30b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117964,
+        "context": 131072
+      },
+      "meta/muse-spark-1.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "meta/muse-spark-1.2": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "meta/muse-spark-1.2-contributor": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "meta/muse-spark-1.3-contributor": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "nousresearch/hermes-3-llama-3.1-70b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 131072
+      },
+      "nousresearch/hermes-3-llama-3.1-405b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 131072
+      },
+      "nousresearch/hermes-4-405b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117964,
+        "context": 131072
+      },
+      "~z-ai/glm-flash-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "~z-ai/glm-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "arcee-ai/trinity-large-thinking": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 80000,
+        "context": 262144
+      },
+      "~openai/gpt-terra-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "~openai/gpt-luna-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "~openai/gpt-sol-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "~openai/gpt-astra-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "~openai/gpt-mini-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "cognitivecomputations/dolphin-mistral-24b-venice-edition": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 128000
+      },
+      "thedrummer/skyfall-36b-v2": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 29491,
+        "context": 32768
+      },
+      "thedrummer/unslopnemo-12b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 819200,
+        "context": 1024000
+      },
+      "thedrummer/cydonia-24b-v4.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117964,
+        "context": 131072
+      },
+      "baidu/ernie-4.5-vl-424b-a47b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16000,
+        "context": 123000
+      },
+      "x-ai/grok-4.20-multi-agent": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 1800000,
+        "context": 2000000
+      },
+      "x-ai/grok-4.7": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 450000,
+        "context": 500000
+      },
+      "x-ai/grok-4.3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 900000,
+        "context": 1000000
+      },
+      "x-ai/grok-4.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 450000,
+        "context": 500000
+      },
+      "x-ai/grok-build-0.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 230400,
+        "context": 256000
+      },
+      "x-ai/grok-4.20": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 1800000,
+        "context": 2000000
+      },
+      "x-ai/grok-4.6": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 450000,
+        "context": 500000
+      },
+      "~anthropic/claude-opus-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "~anthropic/claude-haiku-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 64000,
+        "context": 200000
+      },
+      "~anthropic/claude-sonnet-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "~anthropic/claude-fable-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "upstage/solar-pro-3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117964,
+        "context": 131072
+      },
+      "upstage/solar-pro4": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 524288
+      },
+      "upstage/solar-mini4": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 524288
+      },
+      "~deepseek/deepseek-flash-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "~deepseek/deepseek-pro-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 393216,
+        "context": 1048576
+      },
+      "~deepseek/deepseek-v4-flash-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "~x-ai/grok-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 450000,
+        "context": 500000
+      },
+      "bytedance/ui-tars-1.5-7b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 2048,
+        "context": 128000
+      },
+      "liquid/lfm-2.5-2.6b:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 65536
+      },
+      "google/gemma-4-31b-it": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 262144
+      },
+      "google/gemini-3.1-flash-image-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 58982,
+        "context": 65536
+      },
+      "google/lyria-3-pro-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "google/gemma-3-27b-it": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117964,
+        "context": 131072
+      },
+      "google/gemma-4-31b-it:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "google/gemini-2.5-flash-image": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 32768
+      },
+      "google/gemma-4-26b-a4b-it:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "google/gemma-2-27b-it": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 2048,
+        "context": 8192
+      },
+      "google/gemini-3.6-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "google/gemma-4-26b-a4b-it": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "google/gemini-3-pro-image-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 65536
+      },
+      "google/gemini-3.5-flash-lite": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "google/gemini-3.1-flash-image": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 131072
+      },
+      "google/lyria-3-clip-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "google/gemini-3.1-pro-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "google/gemma-3-12b-it": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 131072
+      },
+      "google/gemini-3.5-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "google/gemini-2.5-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "google/gemini-3-pro-image": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 131072
+      },
+      "google/gemini-2.5-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65535,
+        "context": 1048576
+      },
+      "google/gemini-3.1-flash-lite-image": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 58982,
+        "context": 65536
+      },
+      "google/gemini-3.7-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "google/gemini-3.1-pro-preview-customtools": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "google/gemini-3-flash-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "google/gemini-3.8-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "google/gemma-3-4b-it": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 131072
+      },
+      "google/gemini-2.5-flash-lite": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65535,
+        "context": 1048576
+      },
+      "google/gemini-2.5-pro-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "google/gemini-3.1-flash-lite-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "google/gemini-3.1-flash-lite": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "writer/palmyra-x5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 1040000
+      },
+      "ibm-granite/granite-4.0-h-micro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117900,
+        "context": 131000
+      },
+      "ibm-granite/granite-4.2-8b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117964,
+        "context": 131072
+      },
+      "fireworks/ember-1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "mistralai/mistral-nemo": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 131072
+      },
+      "mistralai/ministral-8b-2512": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 209715,
+        "context": 262144
+      },
+      "mistralai/mistral-small-24b-instruct-2501": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 32768
+      },
+      "mistralai/devstral-2512": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 209715,
+        "context": 262144
+      },
+      "mistralai/mistral-saba": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 26214,
+        "context": 32768
+      },
+      "mistralai/mistral-medium-3-5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 209715,
+        "context": 262144
+      },
+      "mistralai/mistral-medium-3.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 104857,
+        "context": 131072
+      },
+      "mistralai/mistral-small-3.2-24b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 256000
+      },
+      "mistralai/mistral-large": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 102400,
+        "context": 128000
+      },
+      "mistralai/mistral-small-2603": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 209715,
+        "context": 262144
+      },
+      "mistralai/mistral-medium-3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 104857,
+        "context": 131072
+      },
+      "mistralai/voxtral-small-24b-2507": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 26214,
+        "context": 32768
+      },
+      "mistralai/mistral-large-2512": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 209715,
+        "context": 262144
+      },
+      "mistralai/mistral-large-2407": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 104857,
+        "context": 131072
+      },
+      "mistralai/ministral-14b-2512": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 209715,
+        "context": 262144
+      },
+      "mistralai/mistral-small-3.1-24b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 102400,
+        "context": 128000
+      },
+      "mistralai/ministral-3b-2512": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 104857,
+        "context": 131072
+      },
+      "mistralai/mixtral-8x22b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 52428,
+        "context": 65536
+      },
+      "mistralai/codestral-2508": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 204800,
+        "context": 256000
+      },
+      "sakana/fugu-max": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "sakana/fugu-ultra-v2": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "sakana/fugu-ultra": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1000000
+      },
+      "sakana/sakana-namazu": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 262144
+      },
+      "inclusionai/ling-3.0-flash-sante:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "inclusionai/ling-3.0-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "inclusionai/ling-3.1-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "inclusionai/ling-3.0-flash-vl": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "inclusionai/ling-3.0-flash-fin": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "moonshotai/kimi-k3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 943718,
+        "context": 1048576
+      },
+      "moonshotai/kimi-k2.6": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "moonshotai/kimi-k2-thinking": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "moonshotai/kimi-k2.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "moonshotai/kimi-k2-0905": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 98304,
+        "context": 262144
+      },
+      "moonshotai/kimi-k2": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 98304,
+        "context": 131072
+      },
+      "moonshotai/kimi-k2.7-code": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "rekaai/reka-flash-3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 58982,
+        "context": 65536
+      },
+      "rekaai/reka-edge": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 14745,
+        "context": 16384
+      },
+      "apodex/apodex-1.1-mini:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "nvidia/nemotron-3-nano-30b-a3b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "nvidia/nemotron-3.5-content-safety:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 128000
+      },
+      "nvidia/nemotron-3.5-lightning": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 256000
+      },
+      "nvidia/nemotron-3-super-120b-a12b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "nvidia/nemotron-3-ultra-550b-a55b:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1000000
+      },
+      "nvidia/nemotron-3-ultra-550b-a55b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 262144
+      },
+      "nvidia/nemotron-3-super-120b-a12b:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "nvidia/nemotron-3.5-content-safety": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117964,
+        "context": 131072
+      },
+      "nvidia/nemotron-3.5-lightning:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1000000
+      },
+      "xiaomi/mimo-v2.6-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1050000
+      },
+      "xiaomi/mimo-v2.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1050000
+      },
+      "xiaomi/mimo-v2.6-pro-ultraspeed": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "xiaomi/mimo-v2.5-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1050000
+      },
+      "xiaomi/mimo-v2.6-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1050000
+      },
+      "undi95/remm-slerp-l2-13b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 5529,
+        "context": 6144
+      },
+      "gryphe/mythomax-l2-13b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 3686,
+        "context": 8192
+      },
+      "minimax/minimax-m2.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 204800
+      },
+      "minimax/minimax-01": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 40000,
+        "context": 1000192
+      },
+      "minimax/minimax-m2-her": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 2048,
+        "context": 65536
+      },
+      "minimax/minimax-m2.7": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 176947,
+        "context": 204800
+      },
+      "minimax/minimax-m1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 40000,
+        "context": 1000000
+      },
+      "minimax/minimax-m3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 512000,
+        "context": 1048576
+      },
+      "minimax/minimax-m2.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 204800
+      },
+      "minimax/minimax-m2": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 176947,
+        "context": 204800
+      },
+      "mancer/weaver": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 6000,
+        "context": 8000
+      },
+      "stepfun/step-3.5-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 262144
+      },
+      "stepfun/step-3.7-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 230400,
+        "context": 262144
+      },
+      "dots-studio/dots-3-note-preview:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 460800,
+        "context": 512000
+      },
+      "inception/mercury-2.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 260000
+      },
+      "inception/mercury-2": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 50000,
+        "context": 128000
+      },
+      "amazon/nova-lite-v1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 5120,
+        "context": 300000
+      },
+      "amazon/nova-2-lite-v1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65535,
+        "context": 1000000
+      },
+      "amazon/nova-pro-v1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 5120,
+        "context": 300000
+      },
+      "amazon/nova-premier-v1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32000,
+        "context": 1000000
+      },
+      "amazon/nova-micro-v1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 5120,
+        "context": 128000
+      },
+      "relace/relace-search": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 256000
+      },
+      "relace/relace-apply-3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 256000
+      },
+      "aion-labs/aion-2.0": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 131072
+      },
+      "aion-labs/aion-rp-llama-3.1-8b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 29491,
+        "context": 32768
+      },
+      "aion-labs/aion-3.0": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 131072
+      },
+      "aion-labs/aion-3.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "aion-labs/aion-3.5-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "aion-labs/aion-3.0-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 131072
+      },
+      "qwen/qwen3-235b-a22b-2507": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "qwen/qwen3-vl-235b-a22b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "qwen/qwen3.7-max": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "qwen/qwen3.8-27b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "qwen/qwen3-vl-235b-a22b-thinking": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 131072
+      },
+      "qwen/qwen3.8-2.4t-a95b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "qwen/qwen3.5-27b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 262144
+      },
+      "qwen/qwen3-next-80b-a3b-thinking": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "qwen/qwen3-coder-next": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "qwen/qwen3-coder": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 262144
+      },
+      "qwen/qwen3-32b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 131072
+      },
+      "qwen/qwen-plus": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 1000000
+      },
+      "qwen/qwen3.7-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1000000
+      },
+      "qwen/qwen3-max": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 262144
+      },
+      "qwen/qwen3-coder-30b-a3b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "qwen/qwen3.8-omni-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "qwen/qwen3-vl-30b-a3b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 262144
+      },
+      "qwen/qwen3-235b-a22b-thinking-2507": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117964,
+        "context": 131072
+      },
+      "qwen/qwen3-235b-a22b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 131072
+      },
+      "qwen/qwen3.5-122b-a10b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 262144
+      },
+      "qwen/qwen-plus-2025-07-28": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 1000000
+      },
+      "qwen/qwen3.6-35b-a3b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "qwen/qwen3-next-80b-a3b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "qwen/qwen3-vl-30b-a3b-thinking": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "qwen/qwen3.6-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1000000
+      },
+      "qwen/qwen3-coder-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1000000
+      },
+      "qwen/qwen-2.5-coder-32b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 29491,
+        "context": 32768
+      },
+      "qwen/qwen3.5-flash-02-23": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1000000
+      },
+      "qwen/qwen3-max-thinking": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 262144
+      },
+      "qwen/qwen3-coder-plus": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1000000
+      },
+      "qwen/qwen3.5-9b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "qwen/qwen3.8-max-prime": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "qwen/qwen3.5-plus-20260420": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1000000
+      },
+      "qwen/qwen3.8-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "qwen/qwen3.5-35b-a3b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "qwen/qwen3.6-max-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 262144
+      },
+      "qwen/qwen3-30b-a3b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 131072
+      },
+      "qwen/qwen3.5-397b-a17b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "qwen/qwen3-8b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 131072
+      },
+      "qwen/qwen3-vl-32b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 131072
+      },
+      "qwen/qwen3-vl-8b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "qwen/qwen3-30b-a3b-instruct-2507": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32000,
+        "context": 262144
+      },
+      "qwen/qwen2.5-vl-72b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 115200,
+        "context": 128000
+      },
+      "qwen/qwen-2.5-7b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 29491,
+        "context": 32768
+      },
+      "qwen/qwen3.5-plus-02-15": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1000000
+      },
+      "qwen/qwen-2.5-72b-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 32768
+      },
+      "qwen/qwen3-30b-a3b-thinking-2507": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 81920
+      },
+      "qwen/qwen3.6-27b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 262140,
+        "context": 262144
+      },
+      "qwen/qwen3.6-plus": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1000000
+      },
+      "qwen/qwen3-14b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 131072
+      },
+      "qwen/qwen3-vl-8b-thinking": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 131072
+      },
+      "qwen/qwen3.7-plus": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "qwen/qwen3.8-27b:free": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 235929,
+        "context": 262144
+      },
+      "qwen/qwen3.8-max-0902": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1000000
+      },
+      "morph/morph-v3-large": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 262144
+      },
+      "morph/morph-v3-fast": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 38000,
+        "context": 81920
+      },
+      "openai/gpt-5.4": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-5.4-image-2": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 272000
+      },
+      "openai/gpt-5.4-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-audio": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 128000
+      },
+      "openai/gpt-3.5-turbo": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 16385
+      },
+      "openai/gpt-6-astra-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-5.5-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-5.4-nano": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-4o-2024-05-13": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 128000
+      },
+      "openai/gpt-4o-mini-2024-07-18": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 128000
+      },
+      "openai/gpt-5.2-codex": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-5.1-codex": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-4o": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 128000
+      },
+      "openai/gpt-chat-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-audio-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 128000
+      },
+      "openai/gpt-5.6-sol-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-5-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-5.2-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/o4-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      },
+      "openai/o3-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      },
+      "openai/gpt-4": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 8191
+      },
+      "openai/gpt-5.3-codex": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-4.1-nano": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 1047576
+      },
+      "openai/gpt-5-nano": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/o1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      },
+      "openai/gpt-5-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-3.5-turbo-instruct": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 3685,
+        "context": 4095
+      },
+      "openai/gpt-6.1-sol": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-4o-2024-08-06": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 128000
+      },
+      "openai/gpt-6-astra": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-5.6-luna-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-5.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-5-image-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-4o-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 128000
+      },
+      "openai/o3-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      },
+      "openai/gpt-oss-20b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 131072
+      },
+      "openai/gpt-oss-safeguard-20b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 131072
+      },
+      "openai/o3-mini-high": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      },
+      "openai/gpt-3.5-turbo-16k": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 16385
+      },
+      "openai/gpt-5.2-chat": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32000,
+        "context": 128000
+      },
+      "openai/gpt-6-sol-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-5-image": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-5.4-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-5.6-luna": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-5.1-codex-max": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-5.2": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-5.5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-4.1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 1047576
+      },
+      "openai/gpt-4o-2024-11-20": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 128000
+      },
+      "openai/gpt-3.5-turbo-0613": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 3685,
+        "context": 4095
+      },
+      "openai/gpt-4.1-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 1047576
+      },
+      "openai/gpt-5.6-terra-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-6-luna": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-6.1-sol-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/o4-mini-high": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      },
+      "openai/gpt-6-luna-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-5.6-terra": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-4-turbo": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 128000
+      },
+      "openai/gpt-oss-120b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 117964,
+        "context": 131072
+      },
+      "openai/gpt-5.1-codex-mini": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/o3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      },
+      "openai/gpt-5": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 400000
+      },
+      "openai/gpt-5.6-sol": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/gpt-6-sol": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 1050000
+      },
+      "openai/o1-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 100000,
+        "context": 200000
+      },
+      "microsoft/phi-4": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 14745,
+        "context": 16384
+      },
+      "microsoft/wizardlm-2-8x22b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8000,
+        "context": 65535
+      }
+    },
+    "fireworks": {
+      "accounts/fireworks/models/nemotron-3-ultra-nvfp4": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 128000,
+        "context": 262144
+      },
+      "accounts/fireworks/models/kimi-k3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "accounts/fireworks/models/qwen3p8-2p4t-a95b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 262144
+      },
+      "accounts/fireworks/models/ember-1": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "accounts/fireworks/models/deepseek-v4p1-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 384000,
+        "context": 1000000
+      },
+      "accounts/fireworks/models/glm-5p3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 262144,
+        "context": 1048573
+      },
+      "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 262144,
+        "context": 262144
+      },
+      "accounts/fireworks/models/inkling": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 1048576,
+        "context": 1048576
+      },
+      "accounts/fireworks/models/minimax-m3": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 512000,
+        "context": 512000
+      },
+      "accounts/fireworks/models/glm-5p3-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048573
+      },
+      "accounts/fireworks/models/gpt-oss-120b": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 131072
+      },
+      "accounts/fireworks/models/qwen3p8-max": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 262144
+      },
+      "accounts/fireworks/routers/minimax-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 512000,
+        "context": 512000
+      },
+      "accounts/fireworks/routers/glm-flash-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048573
+      },
+      "accounts/fireworks/routers/glm-fast-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 262144,
+        "context": 1048572
+      },
+      "accounts/fireworks/routers/kimi-k3-fast": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "accounts/fireworks/routers/glm-5p3-fast": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 262144,
+        "context": 1048572
+      },
+      "accounts/fireworks/routers/kimi-fast-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "accounts/fireworks/routers/qwen-max-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 262144
+      },
+      "accounts/fireworks/routers/kimi-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 131072,
+        "context": 1048576
+      },
+      "accounts/fireworks/routers/deepseek-flash-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 384000,
+        "context": 1000000
+      },
+      "accounts/fireworks/routers/glm-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 262144,
+        "context": 1048573
+      }
+    },
+    "google-antigravity": {
+      "gemini-flash-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemma-4-31b-it": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "gemini-omni-flash-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 131072
+      },
+      "gemini-3.1-flash-image-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 65536
+      },
+      "veo-3.1-lite-generate-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 480
+      },
+      "lyria-3-pro-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemini-3.1-flash-tts-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 8192
+      },
+      "gemini-2.5-flash-image": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 32768
+      },
+      "gemini-flash-lite-latest": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemini-embedding-2": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 1,
+        "context": 8192
+      },
+      "gemini-3.6-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemma-4-26b-a4b-it": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 262144
+      },
+      "gemini-3-pro-image-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 131072
+      },
+      "gemini-2.5-pro-preview-tts": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 8192
+      },
+      "gemini-3.5-flash-lite": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemini-3.1-flash-image": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 131072
+      },
+      "lyria-3-clip-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemini-3.1-pro-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemini-2.5-computer-use-preview-10-2025": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 64000,
+        "context": 128000
+      },
+      "gemini-3.5-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemini-2.5-pro": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemini-3-pro-image": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 65536
+      },
+      "gemini-2.5-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemini-2.5-flash-preview-tts": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 16384,
+        "context": 8192
+      },
+      "gemini-3.1-flash-lite-image": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 4096,
+        "context": 65536
+      },
+      "deep-research-preview-04-2026": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 131072
+      },
+      "deep-research-max-preview-04-2026": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 131072
+      },
+      "veo-3.1-fast-generate-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 480
+      },
+      "gemini-3.7-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "veo-3.1-generate-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 8192,
+        "context": 480
+      },
+      "gemini-3.1-pro-preview-customtools": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemini-3-flash-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemini-3.8-flash": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemini-3.5-live-translate-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 32768,
+        "context": 16384
+      },
+      "gemini-2.5-flash-lite": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemini-embedding-001": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 1,
+        "context": 2048
+      },
+      "gemini-3.1-flash-lite-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      },
+      "gemini-3.1-flash-live-preview": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 131072
+      },
+      "gemini-3.1-flash-lite": {
+        "source": "Models.dev snapshot 2026-10-05",
+        "output": 65536,
+        "context": 1048576
+      }
+    },
+    "openai-codex": {
+      "gpt-6.1-sol": {
+        "source": "Codex catalogue snapshot 2026-10-05",
+        "output": null,
+        "context": 272000
+      },
+      "gpt-6-astra": {
+        "source": "Codex catalogue snapshot 2026-10-05",
+        "output": null,
+        "context": 272000
+      },
+      "gpt-6-sol": {
+        "source": "Codex catalogue snapshot 2026-10-05",
+        "output": null,
+        "context": 272000
+      },
+      "gpt-6-luna": {
+        "source": "Codex catalogue snapshot 2026-10-05",
+        "output": null,
+        "context": 272000
+      },
+      "gpt-reserve": {
+        "source": "Codex catalogue snapshot 2026-10-05",
+        "output": null,
+        "context": 272000
+      },
+      "gpt-5.6-sol": {
+        "source": "Codex catalogue snapshot 2026-10-05",
+        "output": null,
+        "context": 272000
+      },
+      "gpt-5.6-terra": {
+        "source": "Codex catalogue snapshot 2026-10-05",
+        "output": null,
+        "context": 272000
+      },
+      "gpt-5.6-luna": {
+        "source": "Codex catalogue snapshot 2026-10-05",
+        "output": null,
+        "context": 272000
+      },
+      "gpt-5.5": {
+        "source": "Codex catalogue snapshot 2026-10-05",
+        "output": null,
+        "context": 272000
+      },
+      "codex-auto-review": {
+        "source": "Codex catalogue snapshot 2026-10-05",
+        "output": null,
+        "context": 272000
+      }
+    }
+  }
+}

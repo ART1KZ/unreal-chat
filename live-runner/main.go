@@ -53,16 +53,19 @@ type message struct {
 	ID      string `json:"message_id"`
 }
 type request struct {
-	Prompt       *string   `json:"prompt"`
-	Messages     []message `json:"messages"`
-	Model        string    `json:"model"`
-	SessionID    string    `json:"session_id"`
-	Thinking     string    `json:"thinking_level"`
-	Attempts     *int      `json:"max_attempts"`
-	SystemPrompt *string   `json:"system_prompt"`
-	Disallowed   []string  `json:"disallowed_tools"`
-	Extra        []string  `json:"extra_allowed_tools"`
-	Partial      bool      `json:"include_partial_messages"`
+	Context      *contextConfig `json:"context"`
+	CompactOnly  bool           `json:"compact_only"`
+	Compact      bool           `json:"compact"`
+	Prompt       *string        `json:"prompt"`
+	Messages     []message      `json:"messages"`
+	Model        string         `json:"model"`
+	SessionID    string         `json:"session_id"`
+	Thinking     string         `json:"thinking_level"`
+	Attempts     *int           `json:"max_attempts"`
+	SystemPrompt *string        `json:"system_prompt"`
+	Disallowed   []string       `json:"disallowed_tools"`
+	Extra        []string       `json:"extra_allowed_tools"`
+	Partial      bool           `json:"include_partial_messages"`
 }
 type frame struct {
 	Type     string   `json:"type"`
@@ -78,10 +81,18 @@ type output struct {
 	out    io.Writer
 	cancel context.CancelFunc
 	err    error
+	once   bool
 }
 
 func (o *output) emit(value any) { o.mu.Lock(); defer o.mu.Unlock(); o.write(value) }
 func (o *output) write(value any) {
+	if o.once {
+		if event, ok := value.(map[string]any); ok {
+			if kind, ok := event["type"].(string); ok && strings.HasPrefix(kind, "live.") {
+				return
+			}
+		}
+	}
 	if o.err != nil {
 		return
 	}
@@ -166,6 +177,12 @@ func validate(req *request) error {
 	if !llm.ReasoningEffort(req.Thinking).Valid() {
 		return errors.New("invalid thinking level")
 	}
+	if req.CompactOnly {
+		if req.Context == nil {
+			return errors.New("manual compaction requires context configuration")
+		}
+		return nil
+	}
 	if req.Messages == nil {
 		if req.Prompt == nil {
 			return errors.New("prompt/messages missing")
@@ -245,10 +262,12 @@ func run(parent context.Context, out *output) error {
 	workspace := flag.String("workspace", ".", "tool workspace")
 	dir := flag.String("session-directory", "", "same session store as the stock runner")
 	parentPID := flag.Int("parent-pid", 0, "cancel when the owning client disappears")
+	once := flag.Bool("once", false, "one stock-schema request on stdin; native JSONL events")
+	listSkills := flag.Bool("list-skills", false, "print skill catalog and discovery diagnostics without contacting a provider")
 	version := flag.Bool("version", false, "print protocol and harness version")
 	flag.Parse()
 	if *version {
-		fmt.Println("uachat-live-runner protocol=1 harness=v0.2.0")
+		fmt.Println("uachat-live-runner protocol=1 harness=v0.2.0 skills=1 once=1")
 		return nil
 	}
 	abs, err := filepath.Abs(*workspace)
@@ -258,6 +277,16 @@ func run(parent context.Context, out *output) error {
 	info, err := os.Stat(abs)
 	if err != nil || !info.IsDir() {
 		return errors.New("workspace must be a directory")
+	}
+	out.once = *once
+	if *listSkills {
+		catalog := discoverSkills(abs)
+		data, err := json.Marshal(catalog)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(data))
+		return nil
 	}
 	if *dir == "" {
 		root := os.Getenv("XDG_STATE_HOME")
@@ -278,12 +307,24 @@ func run(parent context.Context, out *output) error {
 	if !scan.Scan() {
 		return errors.New("start frame missing")
 	}
-	boot, err := decode(scan.Bytes())
-	if err != nil {
-		return errors.New("invalid start JSON")
-	}
-	if boot.Type != "start" || boot.Protocol != protocolVersion {
-		return errors.New("unsupported live protocol")
+	var boot frame
+	if *once {
+		var initial request
+		if err := json.Unmarshal(scan.Bytes(), &initial, json.RejectUnknownMembers(true)); err != nil {
+			return errors.New("invalid request JSON")
+		}
+		if initial.SessionID == "" {
+			initial.SessionID = uuid.New().String()
+		}
+		boot = frame{Type: "start", Protocol: protocolVersion, Request: &initial}
+	} else {
+		boot, err = decode(scan.Bytes())
+		if err != nil {
+			return errors.New("invalid start JSON")
+		}
+		if boot.Type != "start" || boot.Protocol != protocolVersion {
+			return errors.New("unsupported live protocol")
+		}
 	}
 	if err = validate(boot.Request); err != nil {
 		return err
@@ -313,6 +354,17 @@ func run(parent context.Context, out *output) error {
 		return err
 	}
 	defer adapter.Close()
+	var modelAdapter llm.Adapter = adapter
+	if req.Context != nil {
+		if req.Context.Window < 0 || req.Context.Reserve < 0 || req.Context.Keep < 0 {
+			return errors.New("invalid context configuration")
+		}
+		maintained := newCompactingAdapter(adapter, *req.Context, filepath.Join(*dir, "context", req.SessionID, "checkpoint.json"), out.emit)
+		if req.Compact {
+			maintained.forceCompact()
+		}
+		modelAdapter = maintained
+	}
 	store, err := localfile.New(*dir)
 	if err != nil {
 		return err
@@ -357,7 +409,41 @@ func run(parent context.Context, out *output) error {
 	if shell == "" {
 		shell = "/bin/sh"
 	}
-	skills, _ := tool.DiscoverSkills(filepath.Join(abs, ".harness", "skills"))
+	catalog := discoverSkills(abs)
+	for _, warning := range catalog.Diagnostics {
+		if !strings.Contains(warning, ": shadowed ") {
+			fmt.Fprintln(os.Stderr, "skill warning: "+warning)
+		}
+	}
+	skills := []tool.Skill{}
+	automatic := []tool.Skill{}
+	catalogBytes := 0
+	omitted := 0
+	access := &skillAccess{allowed: map[string]bool{}}
+	for _, entry := range catalog.Skills {
+		if !entry.Auto && !entry.User {
+			continue
+		}
+		skills = append(skills, entry.native())
+		if entry.Auto {
+			visible := entry.native()
+			description := []rune(visible.Description)
+			if len(description) > 240 {
+				visible.Description = string(description[:239]) + "…"
+			}
+			cost := len(visible.Name) + len(visible.Description) + len(visible.Path) + 128
+			if catalogBytes+cost <= 32768 {
+				automatic = append(automatic, visible)
+				catalogBytes += cost
+			} else {
+				omitted++
+			}
+			access.allowed[entry.Name] = true
+		}
+	}
+	if omitted > 0 {
+		fmt.Fprintf(os.Stderr, "skill warning: %d automatic skills omitted from the 32 KiB catalog; /skills and explicit $name selection remain available\n", omitted)
+	}
 	names := []string{tool.BashName, tool.ViewImageName}
 	if len(skills) > 0 {
 		names = append(names, tool.SkillUseName)
@@ -374,7 +460,7 @@ func run(parent context.Context, out *output) error {
 			enabled = append(enabled, name)
 		}
 	}
-	registry := tool.NewRegistry(tool.StaticTranslators{Bash: bash.New(bash.Config{Shell: shell, Directory: abs, BaseDirectory: operationDir}), ViewImage: viewimage.New(viewimage.Config{Directory: abs})}, enabled...)
+	registry := skillRegistry{Registry: tool.NewRegistry(tool.StaticTranslators{Bash: bash.New(bash.Config{Shell: shell, Directory: abs, BaseDirectory: operationDir}), ViewImage: viewimage.New(viewimage.Config{Directory: abs})}, enabled...), access: access}
 	if _, on := registry.Resolve(tool.SkillUseName); on {
 		for _, skill := range skills {
 			if _, err = registry.RegisterSkill(skill); err != nil {
@@ -382,7 +468,11 @@ func run(parent context.Context, out *output) error {
 			}
 		}
 	}
-	builder := contextbuilder.NewBuilder(registry.Skills()...)
+	if _, enabled := registry.Resolve(tool.SkillUseName); !enabled {
+		automatic = nil
+		catalog.Skills = nil
+	}
+	builder := skillBuilder{Builder: contextbuilder.NewBuilder(automatic...), entries: catalog.Skills, access: access}
 	builder.SetModel(llm.Model{ID: model, ReasoningEffort: llm.ReasoningEffort(req.Thinking)})
 	system := defaultSystemPrompt
 	if req.SystemPrompt != nil {
@@ -391,6 +481,13 @@ func run(parent context.Context, out *output) error {
 	builder.SetSystemPrompt(system)
 	for _, definition := range registry.StaticDefinitions() {
 		builder.AddTool(definition.Tool)
+	}
+	if req.CompactOnly {
+		if len(restored.Operations) > 0 {
+			return errors.New("unfinished operations; resume before compacting")
+		}
+		maintained := modelAdapter.(*compactingAdapter)
+		return compactSession(ctx, store, sid, builder, registry, llm.Model{ID: model, ReasoningEffort: llm.ReasoningEffort(req.Thinking)}, maintained)
 	}
 	inputs, err := inbox.New(ctx, restored.ExternalInputIDs)
 	if err != nil {
@@ -495,7 +592,7 @@ func run(parent context.Context, out *output) error {
 		}
 	}()
 	operations := operation.NewLocalOperationManager(ctx)
-	current := coordinator.New(coordinator.Dependencies{ToolHeartbeatInterval: 10 * time.Minute, SessionID: sid, Inbox: inputs, Restored: restored, Sessions: store, ContextBuilder: builder, LLM: adapter, Tools: registry, Operations: operations})
+	current := coordinator.New(coordinator.Dependencies{ToolHeartbeatInterval: 10 * time.Minute, SessionID: sid, Inbox: inputs, Restored: restored, Sessions: store, ContextBuilder: builder, LLM: modelAdapter, Tools: registry, Operations: operations})
 	err = current.Run(ctx)
 	cancel()
 	// Updates closes only after native primitives were canceled and drained.

@@ -11,7 +11,7 @@ Terminal UI & interactive chat client for the [unreal-agent](https://github.com/
 `uachat` (or `unreal-chat`) is a client, not a harness: one work interval starts
 one runner process; live inbox mode lets multiple user inputs join that running
 interval. JSONL session records render as they arrive, and conversation continuity
-comes from a persisted session id. One-shot mode uses the stock runner. The harness itself ships
+comes from a persisted session id. Default one-shot mode uses the SDK adapter when installed, sharing skill discovery with live mode; a missing adapter or custom --binary uses the stock/custom runner. The harness itself ships
 no interactive UI — this wraps its `codex exec`-style runner into an ergonomic,
 batteries-included developer console.
 
@@ -576,3 +576,145 @@ terminal restoration. Full Python suite: 84 tests when the adapter is installed,
 plus 4 Go tests/`go vet` and 11 existing command-UI checks. Adapter-dependent tests
 skip if it is not installed. Live provider-specific behavior (especially Google
 signatures and cross-account encrypted history) retains the earlier limitations.
+
+
+## Skills (0.6.1)
+
+```sh
+uachat --skills                         # read-only catalog; no provider request
+```
+
+In chat, `/skills` lists names, descriptions, invocation policy and original
+paths. `/skills review` filters the list; `/skills reload` refreshes it. Type `/` to see built-in commands and skills together; type `/review`
+to select a skill directly, or use `$` and `/skill ` for skill completions; arrows select a hint and Tab accepts it.
+`/skill` opens a searchable picker. Use `/skill review inspect this change` or
+`Please use $review to inspect this change` for explicit selection. `/review inspect this change` selects the same skill.
+Built-in command names take precedence on collisions; `/skill NAME` and `$NAME`
+still select a colliding skill explicitly. Skill hints
+also appear in the live composer while an agent is working.
+
+### Discovery and precedence
+
+The installed `uachat-live-runner` adapter owns discovery for both TTY live
+intervals and default one-shot/legacy client turns (`--once`). It uses the pinned
+public unreal-agent SDK, including native `SkillUse`, operations and sessions.
+The upstream `unreal-agent-runner` binary is unchanged. An explicit `--binary`
+keeps that custom runner's contract and discovery behavior. An older/missing
+adapter falls back to stock execution; upgrade using `uachat --install-live` for
+the shared skill catalog.
+
+Highest priority wins when names collide:
+
+1. The workspace, then its parents up to the nearest Git worktree root. At each
+   level: `.harness/skills`, `.agents/skills`, `.claude/skills`,
+   `.opencode/skills`, `.codex/skills`. Outside Git, only the selected workspace
+   contributes project roots.
+2. Extra roots from `UACHAT_SKILL_DIRS` (colon-separated absolute Linux paths).
+3. Personal roots: `~/.config/uachat/skills`, `~/.agents/skills`,
+   `~/.harness/skills`, `~/.claude/skills`, `~/.config/opencode/skills`,
+   `~/.opencode/skills`, `~/.codex/skills`.
+4. In WSL, the same personal roots under the Windows user profile. The profile
+   is discovered automatically, with a bounded read-only PowerShell/wslpath
+   probe. Set `UACHAT_WINDOWS_HOME=off` to disable it, or provide an explicit
+   Windows-profile path. The Windows shims forward both settings.
+
+These settings also work in `~/.config/uachat/env`. For example, optionally add
+an OMP-managed filesystem collection using
+`UACHAT_SKILL_DIRS=/mnt/c/Users/YOUR_USER/.omp/agent/managed-skills`.
+This reads skill files only and does not access OMP credentials or databases.
+
+Collections may be nested. Discovery follows directory symlinks, keeps canonical
+original paths, deduplicates files, stops at each `SKILL.md`, skips `.git` and
+`node_modules`, and bounds scanning to eight levels and 2,000 directories.
+Malformed metadata and shadowed duplicates appear in `/skills` diagnostics.
+The selector refreshes at startup, before a turn and with `/skills reload`;
+the runner discovers afresh for each work interval.
+
+### Metadata and loading
+
+Each skill needs YAML frontmatter containing a nonempty `name` and `description`.
+Real YAML parsing supports quoted strings and folded/literal block descriptions,
+including CRLF files. Names support 1–64 letters/digits and `-`, `_`, `.`, `:`
+for compatibility with existing local collections; descriptions allow up to
+1,024 characters. Metadata is limited to 64 KiB. Only metadata is read during
+discovery; the body and resources are loaded as needed.
+
+The model receives names, descriptions and original paths and is instructed by
+the native harness to load relevant instructions through `SkillUse`. Automatic
+matching remains a model decision. Catalog descriptions are shortened to 240
+characters and the initial catalog is bounded by an approximate 32 KiB budget;
+omissions are reported, and omitted skills remain available for explicit use.
+
+`disable-model-invocation: true` and
+`agents/openai.yaml` → `policy.allow_implicit_invocation: false` prevent automatic
+loading. The skill is absent from the automatic catalog and its tool call is
+blocked until the user explicitly selects it. `user-invocable: false` hides it
+from completions and the picker while permitting automatic use, unless disabled
+by the other policy. Selecting a skill adds only a small model-context hint;
+canonical user text and delivery receipts retain the original prompt.
+
+Full files are read from their original directories, so relative `scripts/`,
+`references/` and `assets/` paths resolve there. Loading a skill does not install
+plugins, MCP tools or script dependencies. Unsupported host-specific metadata
+such as `allowed-tools` or `context: fork` does not create those capabilities.
+Disallowing `SkillUse` removes both its tool definition and the skill catalog.
+
+The design follows [Agent Skills integration guidance](https://agentskills.io/client-implementation/adding-skills-support),
+[OpenCode's personal/project discovery](https://opencode.ai/docs/skills/),
+[Codex's progressive disclosure and explicit selection](https://learn.chatgpt.com/docs/build-skills),
+and [Claude Code's invocation controls](https://code.claude.com/docs/en/skills).
+
+Regression coverage includes discovery precedence, YAML, symlinks/cycles,
+invocation policies, original resource access through native tools, both runner
+transports, read-only listing, middle-of-prompt completion and real PTY Tab use.
+
+
+## Context maintenance (0.7.0)
+
+With the installed SDK adapter, automatic compaction is enabled by default. It
+checks the complete prepared request before each model call, including calls
+after tool results. Estimates include system instructions and tool schemas;
+the default reserve is the larger of 16,384 tokens and 15% of the window (20%
+for tiny windows). Estimates use serialized bytes and measured input usage,
+so the footer marks occupancy with `~` rather than claiming exact tokenization.
+
+The pipeline archives older large text tool outputs to private files with
+head/tail previews and readable paths, protecting recent output, SkillUse output
+and error evidence. It then tries documented OpenAI/Codex standalone native
+compaction on a compatible route. Native output is retained in full, including
+opaque encrypted state, and is bound to model, endpoint and account identity.
+Unsupported or insufficient native compaction falls back to a structured
+continuation summary. Oversized history is folded in bounded chunks. The latest
+user request, current system/tools and a recent tail remain; tool call groups
+and running placeholders are kept intact. Portable fallback rebuilds from the
+readable journal, never from encrypted text.
+
+The SDK JSONL transcript is append-only and is never replaced by a summary.
+Private atomic checkpoints and archives live under the session directory's
+`context/SESSION/`; checkpoints restore after restart and are rejected if their
+source prefix changed. Successful summary usage is included in billing counters
+and kept separate from current context occupancy. Failed/cancelled compaction
+preserves the previous checkpoint. Explicit HTTP context-overflow errors allow
+one compact-and-retry; tools are not dispatched again by this recovery.
+
+- `/compact`: compact immediately without adding a user message or executing
+  tools; finish/resume unfinished operations first. Fork journals currently use
+  automatic compaction during continuation instead of this manual command.
+- `/autocompact on|off`: persist automatic context maintenance preference.
+- `/context`: show window source, approximate threshold and reserve;
+  `/context TOKENS` overrides it and `/context auto` restores discovery.
+- `/model`: show context limits in the picker; `/model refresh` explicitly
+  refreshes Models.dev's public catalogue, retaining offline data on failure.
+
+Limits are matched by exact provider and model ID. Route `/models` metadata
+wins over the bundled/offline Models.dev snapshot; Codex uses its own catalogue
+instead of the public OpenAI API limit. The footer shows a known maximum before
+the first response. Custom routes and unknown/Ollama configured windows need
+route metadata or `/context TOKENS`; no window is invented. Without a known
+window, automatic summarization cannot trigger. Custom runner binaries retain
+their original request contract; context maintenance requires the SDK adapter.
+
+Checks use the real pinned coordinator and local mock endpoints, including
+opaque native replay and live running-tool/manual-compaction/restart. Hosted
+native endpoint availability and semantic summary quality were not live-tested.
+No OMP/Pi runtime, Bun package or third-party account store is required.

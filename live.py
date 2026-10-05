@@ -72,6 +72,7 @@ class Composer(editor.Editor):
         lines=[editor._fit(self.paint(status,'dim'),max(1,width-1))]
         if self.pending or self.accepted_count:
             lines.append(editor._fit(self.paint(f'  inbox: принято {self.accepted_count} · ждёт подтверждения {self.pending}','dim'),max(1,width-1)))
+        lines.extend(super()._menu_lines(width))
         return lines
 
     def erase(self):
@@ -125,7 +126,11 @@ def run_live_turn(binary,workspace,request,renderer,spinner,history_path,outbox_
     import termios,tty
     from uarchat import SESSION_DIR,terminate,iter_session_records
     outbox=Outbox(outbox_path)
-    composer=Composer(history_path=history_path,paint=lambda text,key:renderer.theme.paint(text,key),footer=spinner.footer)
+    from skills import Catalog
+    from uarchat import command_suggestions
+    skill_catalog = Catalog(workspace,binary)
+    composer=Composer(history_path=history_path,paint=lambda text,key:renderer.theme.paint(text,key),footer=spinner.footer,
+        suggestions=lambda text:command_suggestions(text,renderer.theme,os.environ.get('UACHAT_PROVIDER',''),skill_catalog))
     fd=sys.stdin.fileno(); old=termios.tcgetattr(fd)
     env=os.environ.copy()
     shell='/usr/local/bin/rtk-shell'
@@ -197,12 +202,13 @@ def run_live_turn(binary,workspace,request,renderer,spinner,history_path,outbox_
                     send=False
                 if send and composer._buffer.strip():
                     text=composer._buffer.strip()
-                    if text.startswith('/') and text.split()[0] in __import__('uarchat').COMMANDS:
+                    if text.startswith('/') and text.split()[0] in __import__('uarchat').COMMANDS and not text.startswith('/skill '):
                         composer._notice='Команды переключения доступны после завершения; Esc остановит текущую работу.'
                     elif stopped or not ready:
                         composer._notice='Агент не принимает ввод сейчас; текст сохранён.'
                     else:
                         try:
+                            text=skill_catalog.invoke(text,__import__('uarchat').COMMANDS)
                             key=outbox.enqueue(text)
                             transport.send({'type':'input','id':key,'text':text})
                             submitted.append(key);composer._remember(text)

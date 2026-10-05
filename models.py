@@ -114,7 +114,7 @@ def load_env(path: str | None = None) -> dict[str, str]:
     return values
 
 
-def context_window(base_url: str, model: str) -> int | None:
+def context_window(base_url: str, model: str, provider: str = "") -> int | None:
     from terminal_ui import positive_int
     meta = MODEL_METADATA.get((base_url.rstrip("/"), model), {})
     for field in ("context_length", "context_window", "max_context_tokens"):
@@ -122,7 +122,11 @@ def context_window(base_url: str, model: str) -> int | None:
         if value:
             return value
     limit = meta.get("limit")
-    return positive_int(limit.get("context")) if isinstance(limit, dict) else None
+    value = positive_int(limit.get("context")) if isinstance(limit, dict) else None
+    if value or not provider: return value
+    import model_limits
+    resolved = model_limits.resolve(provider, model)
+    return resolved["context"] if resolved else None
 
 
 def models_source(env: dict[str, str]) -> tuple[str, str | None]:

@@ -23,9 +23,11 @@ class RunnerTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         tmp = self.tmp.name
         self.env = {k:v for k,v in os.environ.items() if not k.startswith(('UACHAT_','UNREAL_HARNESS_','OPENAI_','XDG_'))}
-        self.env.update(HOME=tmp, XDG_STATE_HOME=tmp+'/state', UACHAT_PROVIDER='ollama',
+        self.env.update(HOME=tmp, UACHAT_WINDOWS_HOME='off', XDG_STATE_HOME=tmp+'/state', UACHAT_PROVIDER='ollama',
                         UNREAL_HARNESS_LLM_PROVIDER='ollama', UNREAL_HARNESS_LLM_MODEL='mock',
                         UNREAL_HARNESS_LLM_MAX_ATTEMPTS='1', UACHAT_AUTO_UPDATE='off', UACHAT_NOTIFY='off')
+        if os.environ.get("UACHAT_LIVE_BINARY"):
+            self.env["UACHAT_LIVE_BINARY"] = os.environ["UACHAT_LIVE_BINARY"]
         self.requests = []
         requests = self.requests
         class Mock(http.server.BaseHTTPRequestHandler):
